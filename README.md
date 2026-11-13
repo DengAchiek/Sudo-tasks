@@ -763,6 +763,4 @@ Each member is responsible for the quality, completion and documentation of thei
 
 However, this is a collaborative capstone project. All five members should understand the overall architecture, objectives and findings, even when they are not directly responsible for a particular component.
 
-**Project Repository:** https://github.com/donjuel003/ROAD-ACCIDENT-IN-NAIROBI-DATASET
-
 **Our goal:** Develop a practical, data-driven road safety solution that helps identify accident-prone areas, understand road accident patterns and improve emergency response within Nairobi, Kenya.
