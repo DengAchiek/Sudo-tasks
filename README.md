@@ -41,5 +41,21 @@ Open <http://127.0.0.1:5173>. The analytics client uses typed API services. Unti
 
 Create a static frontend build with `npm run build`. The Flask shell in `app.py` can serve the built app at <http://127.0.0.1:5000>. The existing FastAPI scaffold remains available separately at `backend/main.py`.
 
+### Deploy to Cloudflare Workers
+
+The Cloudflare deployment serves the Vite build as Worker static assets and handles account authentication with a D1 database. Wrangler configuration and the D1 schema are in `frontend/wrangler.jsonc` and `frontend/migrations/`. Cloudflare passwords use PBKDF2-HMAC-SHA256 with 600,000 iterations; the local Flask development server continues to use its SQLite database and scrypt password hashes.
+
+From `frontend/`, authenticate to Cloudflare, create the production database, apply its schema, then deploy:
+
+```bash
+npm install
+npm run cf:login
+npm run cf:db:create
+npm run cf:db:migrate:remote
+npm run cf:deploy
+```
+
+When Wrangler asks to add the D1 binding to the config, accept so it records the database ID. The deployed URL is printed by Wrangler as a `workers.dev` address; a custom domain can be attached in Cloudflare later. Run `npm run cf:dev` to preview the Worker and a local D1 database. The Cloudflare D1 database starts empty; accounts in the local Flask SQLite database are not imported and will need to register again on the deployed site.
+
 ## Responsible use
 This project is for research and decision support. Do not treat model outputs as definitive evidence of individual driver behaviour or as a substitute for official road-safety decisions. Protect personal and sensitive information.
