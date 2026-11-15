@@ -1,0 +1,1 @@
+# Data dictionary\n\nDocument each dataset and each field: name, meaning, type, units, allowed values, missing-value conventions, and source.\n

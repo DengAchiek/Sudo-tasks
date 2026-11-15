@@ -1,0 +1,1 @@
+# Model artifacts\n\nStore trained model files here. Large artifacts should not normally be committed to Git; use an appropriate artifact store when needed.\n

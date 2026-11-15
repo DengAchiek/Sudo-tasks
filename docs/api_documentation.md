@@ -1,0 +1,1 @@
+# API documentation\n\nDocument available endpoints, request and response schemas, status codes, authentication (if any), and example calls.\n

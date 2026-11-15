@@ -1,0 +1,27 @@
+# Core data work
+pandas
+numpy
+scipy
+scikit-learn
+matplotlib
+seaborn
+jupyter
+ipykernel
+
+# Geospatial analysis
+geopandas
+shapely
+pyproj
+folium
+
+# Web and API
+Flask
+fastapi
+uvicorn[standard]
+pydantic
+
+# Utilities and testing
+python-dotenv
+joblib
+pytest
+httpx

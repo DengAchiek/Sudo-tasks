@@ -1,0 +1,1 @@
+# Methodology\n\nDocument the research questions, data sources, inclusion criteria, cleaning decisions, feature engineering, validation strategy, evaluation metrics, and limitations.\n

@@ -1,0 +1,1 @@
+"""FastAPI application entry point."""\n\nfrom fastapi import FastAPI\n\napp = FastAPI(title="Nairobi Road Safety API", version="0.1.0")\n\n\n@app.get("/health")\ndef health_check():\n    return {"status": "ok"}\n
