@@ -40,7 +40,7 @@ http.interceptors.response.use(
       const status = error.response?.status;
       const serverMessage = typeof error.response?.data?.detail === "string" ? error.response.data.detail : null;
       const message = status === 401
-        ? "This view requires an authorized session. Sign in through the organization’s approved flow."
+        ? "This view requires a RoadLens account. Sign in to continue."
         : status === 403
           ? "Your account does not have permission to view this information."
           : serverMessage ?? (error.response ? "The analytics service returned an error." : "The analytics service could not be reached.");

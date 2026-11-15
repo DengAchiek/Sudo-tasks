@@ -7,6 +7,7 @@ import { NairobiMap } from "../components/NairobiMap";
 import { Badge } from "../components/ui";
 import { roadlensApi } from "../api/client";
 import { useRoadlensData } from "../hooks/useRoadlensData";
+import { useAuth } from "../auth/AuthContext";
 
 const capabilities = [
   { icon: BarChart3, title: "Accident trends", detail: "Understand how reported crashes change over time, by location, and across road users." },
@@ -37,6 +38,7 @@ function SectionKicker({ children }: { children: string }) { return <div classNa
 
 export function PublicLanding() {
   const [menuOpen, setMenuOpen] = useState(false);
+  const { user } = useAuth();
   const { data: overview, meta: overviewMeta } = useRoadlensData(() => roadlensApi.overview("all"), []);
   const { data: hotspotData, meta: hotspotMeta } = useRoadlensData(() => roadlensApi.hotspots("all"), []);
   const previewPoints = hotspotData?.locations.slice(0, 4) ?? [];
@@ -49,8 +51,8 @@ export function PublicLanding() {
   const closeMenu = () => setMenuOpen(false);
   return <div className="public-page" id="home">
     <header className="public-header"><div className="public-header-inner"><Link className="brand brand-public" to="/" aria-label="RoadLens home" onClick={closeMenu}><BrandMark /><span><strong>RoadLens</strong><small>NAIROBI ROAD INTELLIGENCE</small></span></Link>
-      <nav className={`public-nav ${menuOpen ? "public-nav-open" : ""}`} aria-label="Main navigation">{navItems.map((item) => <a href={item.href} key={item.href} onClick={closeMenu}>{item.label}</a>)}<Link className="nav-mobile-explore" to="/analytics" onClick={closeMenu}>Explore analytics <ArrowUpRight size={15} /></Link></nav>
-      <div className="public-nav-actions"><Link className="public-analytics-button" to="/analytics">Explore analytics <ArrowUpRight size={15} /></Link><button className="mobile-nav-toggle" type="button" aria-label={menuOpen ? "Close navigation" : "Open navigation"} aria-expanded={menuOpen} onClick={() => setMenuOpen((value) => !value)}>{menuOpen ? <X size={21} /> : <Menu size={21} />}</button></div>
+      <nav className={`public-nav ${menuOpen ? "public-nav-open" : ""}`} aria-label="Main navigation">{navItems.map((item) => <a href={item.href} key={item.href} onClick={closeMenu}>{item.label}</a>)}<Link className="nav-mobile-auth" to={user ? "/analytics" : "/login"} onClick={closeMenu}>{user ? "Open dashboard" : "Sign in"} <ArrowUpRight size={15} /></Link><Link className="nav-mobile-explore" to={user ? "/analytics" : "/register"} onClick={closeMenu}>{user ? "Continue to analytics" : "Create account"} <ArrowUpRight size={15} /></Link></nav>
+      <div className="public-nav-actions"><Link className="public-signin-link" to={user ? "/analytics" : "/login"}>{user ? `Hi, ${user.name.split(" ")[0]}` : "Sign in"}</Link><Link className="public-analytics-button" to="/analytics">{user ? "Open dashboard" : "Explore analytics"} <ArrowUpRight size={15} /></Link><button className="mobile-nav-toggle" type="button" aria-label={menuOpen ? "Close navigation" : "Open navigation"} aria-expanded={menuOpen} onClick={() => setMenuOpen((value) => !value)}>{menuOpen ? <X size={21} /> : <Menu size={21} />}</button></div>
     </div></header>
 
     <main>

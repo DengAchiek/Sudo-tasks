@@ -12,6 +12,7 @@ frontend/dist/
 frontend/.env
 frontend/.env.local
 *.tsbuildinfo
+instance/roadlens.sqlite3
 
 # Editors / OS
 .DS_Store
