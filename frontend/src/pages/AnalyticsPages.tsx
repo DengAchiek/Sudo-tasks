@@ -1,4 +1,4 @@
-import { useMemo, useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent, type MouseEvent, type ReactNode, type RefObject } from "react";
 import { Link, useOutletContext } from "react-router-dom";
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, Line, LineChart, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { Activity, ArrowDownRight, ArrowRight, ArrowUpRight, Check, ChevronRight, CircleHelp, Clock3, Info, MapPin, RefreshCw, Route, Search, ShieldCheck, TriangleAlert, X } from "lucide-react";
@@ -8,9 +8,44 @@ import type { AnalyticsContext } from "../layouts/AnalyticsLayout";
 import { useAuth } from "../auth/AuthContext";
 import { NairobiMap } from "../components/NairobiMap";
 import { Badge, Button, Card, DataState, PanelHeading } from "../components/ui";
-import type { AnalysisData, CommunityReportInput, Hotspot, ModelMetric, Period, RiskLevel } from "../types/analytics";
+import type { AnalysisData, CommunityReportInput, Hotspot, Metric, ModelMetric, Period, RiskLevel } from "../types/analytics";
 
 const COLORS = ["#dc2626", "#f59e0b", "#2563eb", "#16a34a", "#8b5cf6", "#64748b"];
+
+interface DetailEntry { label: string; value: string }
+interface AnalyticsDetail { title: string; description: string; entries: DetailEntry[]; note: string }
+
+function InteractiveAnalyticsCard({ className = "", label, onOpen, children }: { className?: string; label: string; onOpen: () => void; children: ReactNode }) {
+  function handleClick(event: MouseEvent<HTMLElement>) {
+    const target = event.target instanceof HTMLElement ? event.target : null;
+    if (target?.closest("a,button,input,select,textarea,[role='button'],[role='link'],.overview-map,.map-filter-row")) return;
+    onOpen();
+  }
+
+  function handleKeyDown(event: KeyboardEvent<HTMLElement>) {
+    if (event.target !== event.currentTarget || (event.key !== "Enter" && event.key !== " ")) return;
+    event.preventDefault();
+    onOpen();
+  }
+
+  return <Card className={`analytics-detail-card ${className}`} role="group" tabIndex={0} aria-label={`${label}. Press Enter for details.`} aria-haspopup="dialog" title="Click or press Enter to view details" onClick={handleClick} onKeyDown={handleKeyDown}>
+    {children}
+  </Card>;
+}
+
+function AnalyticsDetailPopup({ detail, closeRef, onClose }: { detail: AnalyticsDetail; closeRef: RefObject<HTMLButtonElement | null>; onClose: () => void }) {
+  return <div className="analytics-detail-backdrop" role="presentation" onClick={(event) => {
+    if (event.target === event.currentTarget) onClose();
+  }}>
+    <section className="analytics-detail-dialog" role="dialog" aria-modal="true" aria-labelledby="analytics-detail-title" aria-describedby="analytics-detail-description" onClick={(event) => event.stopPropagation()}>
+      <div className="analytics-detail-dialog-top"><span>ROADLENS · DASHBOARD DETAILS</span><button ref={closeRef} type="button" className="analytics-detail-close" aria-label="Close details" onClick={onClose}><X size={16} /></button></div>
+      <h2 id="analytics-detail-title">{detail.title}</h2>
+      <p id="analytics-detail-description">{detail.description}</p>
+      <dl className="analytics-detail-values">{detail.entries.map((entry) => <div key={`${entry.label}-${entry.value}`}><dt>{entry.label}</dt><dd>{entry.value}</dd></div>)}</dl>
+      <div className="analytics-detail-note">{detail.note}</div>
+    </section>
+  </div>;
+}
 
 function PageTitle({ eyebrow, title, detail, action }: { eyebrow: string; title: string; detail: string; action?: ReactNode }) {
   return <div className="page-title-row">
@@ -71,10 +106,10 @@ function readerFriendlyMetricHelper(helper?: string) {
     .replace(/sample cluster/giu, "sample area");
 }
 
-function MetricTile({ label, value, unit, change, helper, index }: { label: string; value: string | number; unit?: string; change?: number | null; helper?: string; index: number }) {
+function MetricTile({ label, value, unit, change, helper, index, onOpen }: { label: string; value: string | number; unit?: string; change?: number | null; helper?: string; index: number; onOpen?: () => void }) {
   const good = typeof change === "number" && change < 0;
   const plainHelper = readerFriendlyMetricHelper(helper);
-  return <Card className={`metric-tile metric-tile-${index}`}>
+  const contents = <>
     <div className="metric-tile-label">{readerFriendlyMetricLabel(label)}
       <span className="metric-index">0{index + 1}</span></div>
       <div className="metric-main-value">{value}
@@ -82,7 +117,11 @@ function MetricTile({ label, value, unit, change, helper, index }: { label: stri
         <div className="metric-tile-foot">{typeof change === "number" ?
           <span className={`metric-change ${good ? "change-good" : "change-warn"}`}>{change < 0 ? <ArrowDownRight size={13} /> : <ArrowUpRight size={13} />}{Math.abs(change).toFixed(1)}%
           <span>vs. previous period</span></span> : null}
-          {plainHelper && <span className="metric-helper">{plainHelper}</span>}</div></Card>;
+          {plainHelper && <span className="metric-helper">{plainHelper}</span>}</div>
+  </>;
+  return onOpen
+    ? <InteractiveAnalyticsCard className={`metric-tile metric-tile-${index}`} label={`${readerFriendlyMetricLabel(label)}: ${value}${unit ? ` ${unit}` : ""}`} onOpen={onOpen}>{contents}</InteractiveAnalyticsCard>
+    : <Card className={`metric-tile metric-tile-${index}`}>{contents}</Card>;
 }
 
 function MapInsightWindow({ point, demo, link = false }: { point: Hotspot | null; demo: boolean; link?: boolean }) {
@@ -133,6 +172,8 @@ export function OverviewPage() {
   const [riskFilter, setRiskFilter] = useState<RiskLevel | "all">("all");
   const [roadUserFilter, setRoadUserFilter] = useState("all");
   const [selected, setSelected] = useState<Hotspot | null>(null);
+  const [detail, setDetail] = useState<AnalyticsDetail | null>(null);
+  const detailCloseRef = useRef<HTMLButtonElement | null>(null);
   const visiblePoints = useMemo(() => (data?.hotspots ?? []).filter((point) => (riskFilter === "all" || point.level === riskFilter) && (roadUserFilter === "all" || point.mainRoadUser === roadUserFilter) && (!search.trim() || `${point.name} ${point.mainRoadUser}`.toLowerCase().includes(search.trim().toLowerCase()))), [data, riskFilter, roadUserFilter, search]);
   const visibleSelected = visiblePoints.find((point) => point.id === selected?.id) ?? null;
   const mapPoint = visibleSelected ?? visiblePoints[0] ?? null;
@@ -143,12 +184,76 @@ export function OverviewPage() {
   const alertKey = reviewMetric ? `${reviewMetric.label}:${reviewMetric.change}` : reviewPoint?.id ?? "";
   const [dismissedAlert, setDismissedAlert] = useState("");
   const periodLabel = meta?.mode === "demo" ? "sample snapshot" : ({ "30d": "last 30 days", "90d": "last 90 days", "12m": "last 12 months", all: "all available data" } satisfies Record<Period, string>)[period];
+  const showDetail = (item: AnalyticsDetail) => setDetail({
+    ...item,
+    entries: [{ label: "Reporting period", value: periodLabel }, ...item.entries],
+  });
+
+  useEffect(() => {
+    if (!detail) return;
+    const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const previousOverflow = document.body.style.overflow;
+    const handleDialogKeys = (event: globalThis.KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setDetail(null);
+      } else if (event.key === "Tab") {
+        event.preventDefault();
+        detailCloseRef.current?.focus();
+      }
+    };
+    document.body.style.overflow = "hidden";
+    document.addEventListener("keydown", handleDialogKeys);
+    detailCloseRef.current?.focus();
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      document.removeEventListener("keydown", handleDialogKeys);
+      previousFocus?.focus();
+    };
+  }, [detail]);
+
+  const openMetricDetail = (metric: Metric) => {
+    const friendlyLabel = readerFriendlyMetricLabel(metric.label);
+    const metricValue = `${metric.value}${metric.unit ? ` ${metric.unit}` : ""}`;
+    showDetail({
+      title: friendlyLabel,
+      description: `A summary indicator for ${friendlyLabel.toLowerCase()} in the current RoadLens overview.`,
+      entries: [
+        { label: "Current value", value: metricValue },
+        ...(typeof metric.change === "number" ? [{ label: "Change from previous period", value: `${metric.change > 0 ? "+" : ""}${metric.change.toFixed(1)}%` }] : []),
+        ...(readerFriendlyMetricHelper(metric.helper) ? [{ label: "How to read it", value: readerFriendlyMetricHelper(metric.helper) }] : []),
+      ],
+      note: meta?.mode === "demo" ? "This is illustrative sample information, not an official statistic." : "This indicator reflects the data returned by the connected analytics service.",
+    });
+  };
   return <>
     <PageTitle eyebrow="ROAD SAFETY · OPERATIONS" title="Decision overview" detail={`Crashes · severity · locations · ${periodLabel}.`} action={<Button variant="secondary" icon={<RefreshCw size={14} />} onClick={reload}>Refresh</Button>} />
     <DataState loading={loading} error={error} retry={reload} title="No overview data available" detail="The analytics service has not returned overview results yet.">
       {data && <>
         <DemoNote mode={meta?.mode} updatedAt={meta?.updatedAt} />
-        {alertKey && alertKey !== dismissedAlert && <section className={`decision-alert ${reviewMetric && reviewMetric.change! < 0 ? "decision-alert-down" : ""}`} role="status" aria-live="polite" aria-label="Dashboard recommendation">
+        {alertKey && alertKey !== dismissedAlert && <section className={`decision-alert ${reviewMetric && reviewMetric.change! < 0 ? "decision-alert-down" : ""}`} role="status" aria-live="polite" aria-label="Dashboard recommendation. Press Enter for details." tabIndex={0} onClick={(event) => {
+          const target = event.target instanceof HTMLElement ? event.target : null;
+          if (target?.closest("a,button")) return;
+          showDetail({
+            title: reviewMetric ? `${readerFriendlyMetricLabel(reviewMetric.label)} ${reviewMetric.change! > 0 ? "increased" : "decreased"}` : "Location to validate",
+            description: "A dashboard signal selected for review based on the largest available change or busiest returned location.",
+            entries: reviewMetric ? [
+              { label: "Change from previous period", value: `${reviewMetric.change! > 0 ? "+" : "−"}${Math.abs(reviewMetric.change!).toFixed(1)}%` },
+              { label: "Current value", value: `${reviewMetric.value}${reviewMetric.unit ? ` ${reviewMetric.unit}` : ""}` },
+              { label: "Reporting period", value: periodLabel },
+            ] : reviewPoint ? [
+              { label: "Location", value: reviewPoint.name },
+              { label: "Crash reports", value: reviewPoint.incidents.toLocaleString() },
+              { label: "Location group", value: clusterLevelLabel(reviewPoint.level) },
+            ] : [],
+            note: reviewMetric ? reviewMetric.change! > 0 ? "Check location and reporting coverage before shifting teams." : "Verify coverage and severity before calling this an improvement." : "Validate location and traffic information before making operating decisions.",
+          });
+        }} onKeyDown={(event) => {
+          if (event.target !== event.currentTarget || (event.key !== "Enter" && event.key !== " ")) return;
+          event.preventDefault();
+          const target = event.currentTarget;
+          target.click();
+        }}>
           <span className="decision-alert-icon"><TriangleAlert size={17} /></span>
           <div className="decision-alert-main">
             <span className="decision-alert-kicker">{meta?.mode === "demo" ? "SAMPLE SIGNAL" : "MOVEMENT TO REVIEW"}</span>
@@ -159,14 +264,43 @@ export function OverviewPage() {
           <Link to="/analytics/hotspots">Review locations <ArrowRight size={13} /></Link>
           <button type="button" className="decision-alert-dismiss" aria-label="Dismiss recommendation" onClick={() => setDismissedAlert(alertKey)}><X size={15} /></button>
         </section>}
-        <div className="metric-grid">{data.metrics.map((metric, index) => <MetricTile key={metric.label} {...metric} index={index} />)}</div>
+        <div className="metric-grid">{data.metrics.map((metric, index) => <MetricTile key={metric.label} {...metric} index={index} onOpen={() => openMetricDetail(metric)} />)}</div>
         <div className="overview-grid overview-grid-top">
-          <Card className="chart-panel trend-panel-large">
+          <InteractiveAnalyticsCard className="chart-panel trend-panel-large" label="Accidents over time chart" onOpen={() => {
+            const total = data.monthlyTrend.reduce((sum, point) => sum + point.accidents, 0);
+            const peak = data.monthlyTrend.reduce<(typeof data.monthlyTrend)[number] | null>((current, point) => !current || point.accidents > current.accidents ? point : current, null);
+            showDetail({
+              title: "Accidents over time",
+              description: "Monthly accident-record totals returned by the service for the selected reporting period.",
+              entries: [
+                { label: "Reported records", value: total.toLocaleString() },
+                { label: "Months shown", value: data.monthlyTrend.length.toLocaleString() },
+                { label: "First month", value: data.monthlyTrend[0]?.label ?? "—" },
+                { label: "Most reports", value: peak ? `${peak.label} · ${peak.accidents.toLocaleString()}` : "No monthly records" },
+              ],
+              note: meta?.mode === "demo" ? "This chart uses illustrative sample data, not official statistics." : "These are reported records returned by the connected service; coverage can vary by place and time.",
+            });
+          }}>
             <PanelHeading title="Accidents over time" detail="Monthly records" action={<span className="chart-period-label">{data.monthlyTrend.length ? `${data.monthlyTrend[0].label} — ${data.monthlyTrend.at(-1)?.label}` : "NO TREND DATA"}
               <span>·</span> {meta?.mode === "demo" ? "SAMPLE" : "SERVICE"}</span>} />
             <div className="chart-area chart-tall">
               <ResponsiveContainer width="100%" height="100%">
-                <AreaChart accessibilityLayer data={data.monthlyTrend} margin={{ top: 15, right: 16, left: -16, bottom: 0 }}>
+                <AreaChart accessibilityLayer data={data.monthlyTrend} onClick={(chartState, event) => {
+                  if (typeof chartState.activeTooltipIndex !== "number") return;
+                  const point = data.monthlyTrend[chartState.activeTooltipIndex];
+                  if (!point) return;
+                  event.stopPropagation();
+                  showDetail({
+                    title: point.label,
+                    description: "Accident records for this month in the selected overview period.",
+                    entries: [
+                      { label: "Accident records", value: point.accidents.toLocaleString() },
+                      { label: "Fatality reports", value: (point.fatalities ?? 0).toLocaleString() },
+                      { label: "Injury reports", value: (point.injuries ?? 0).toLocaleString() },
+                    ],
+                    note: meta?.mode === "demo" ? "Monthly values are illustrative sample data." : "Monthly values reflect records returned by the connected service.",
+                  });
+                }} margin={{ top: 15, right: 16, left: -16, bottom: 0 }}>
                   <defs>
                     <linearGradient id="trendFill" x1="0" y1="0" x2="0" y2="1">
                       <stop offset="0%" stopColor="#2563eb" stopOpacity={.14} />
@@ -186,14 +320,39 @@ export function OverviewPage() {
                 <i className="legend-line legend-blue" />Reported accident records</span>
                 <span>{meta?.mode === "demo" ? "Source: sample API response" : "Source: connected service"}</span>
                 </div>
-          </Card>
+          </InteractiveAnalyticsCard>
 
-          <Card className="chart-panel weekday-panel">
+          <InteractiveAnalyticsCard className="chart-panel weekday-panel" label="Accidents by day chart" onOpen={() => {
+            const total = data.weekdayDistribution.reduce((sum, point) => sum + point.value, 0);
+            const peak = data.weekdayDistribution.reduce<(typeof data.weekdayDistribution)[number] | null>((current, point) => !current || point.value > current.value ? point : current, null);
+            const weekendTotal = data.weekdayDistribution.filter((point) => /^(sat|sun)/i.test(point.name)).reduce((sum, point) => sum + point.value, 0);
+            showDetail({
+              title: "Accidents by day",
+              description: "Reported records grouped by weekday across the selected reporting period.",
+              entries: [
+                { label: "Records represented", value: total.toLocaleString() },
+                { label: "Highest day", value: peak ? `${peak.name} · ${peak.value.toLocaleString()}` : "No weekday records" },
+                { label: "Weekend records", value: weekendTotal.toLocaleString() },
+              ],
+              note: "The day-of-week grouping shows when records occurred. It does not account for differences in traffic volume.",
+            });
+          }}>
             <PanelHeading title="Accidents by day" detail="Reported records across the week" action={<span className="panel-icon">
               <Clock3 size={16} /></span>} />
               <div className="chart-area chart-medium">
                 <ResponsiveContainer width="100%" height="100%">
-                  <BarChart accessibilityLayer data={data.weekdayDistribution} margin={{ top: 10, right: 8, left: -23, bottom: 0 }}>
+                  <BarChart accessibilityLayer data={data.weekdayDistribution} onClick={(chartState, event) => {
+                    if (typeof chartState.activeTooltipIndex !== "number") return;
+                    const point = data.weekdayDistribution[chartState.activeTooltipIndex];
+                    if (!point) return;
+                    event.stopPropagation();
+                    showDetail({
+                      title: point.name,
+                      description: "Reported records grouped under this day of the week.",
+                      entries: [{ label: "Accident records", value: point.value.toLocaleString() }],
+                      note: "These are historical counts, not a measure of crash risk per trip or per road user.",
+                    });
+                  }} margin={{ top: 10, right: 8, left: -23, bottom: 0 }}>
                     <CartesianGrid stroke="#edf1f5" vertical={false} />
                     <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fill: "#8491a0", fontSize: 9 }} dy={8} />
                     <YAxis axisLine={false} tickLine={false} tick={{ fill: "#8491a0", fontSize: 9 }} />
@@ -202,11 +361,21 @@ export function OverviewPage() {
                   </BarChart>
                 </ResponsiveContainer>
               </div>
-          </Card>
+          </InteractiveAnalyticsCard>
         </div>
 
         <div className="overview-grid overview-grid-bottom">
-          <Card className="chart-panel map-panel-analytics">
+          <InteractiveAnalyticsCard className="chart-panel map-panel-analytics" label="Past crash locations map" onOpen={() => showDetail({
+            title: "Past crash locations",
+            description: "Crash report groups currently displayed on the map using your selected filters.",
+            entries: [
+              { label: "Locations shown", value: visiblePoints.length.toLocaleString() },
+              { label: "Report count filter", value: riskFilter === "all" ? "All groups" : clusterLevelLabel(riskFilter) },
+              { label: "Road-user filter", value: roadUserFilter === "all" ? "All groups" : roadUserFilter },
+              ...(mapPoint ? [{ label: "Selected location", value: mapPoint.name }, { label: "Reports at selected location", value: mapPoint.incidents.toLocaleString() }] : []),
+            ],
+            note: "Map markers can be selected directly to open location details. The filters only change which returned groups are visible.",
+          })}>
             <PanelHeading title="Past crash locations" detail="Select a location for details" action={<Link className="button button-ghost button-sm" to="/analytics/hotspots">Open map
             <ArrowRight size={13} /></Link>} />
             <div className="map-filter-row">
@@ -244,14 +413,42 @@ export function OverviewPage() {
                         <span>{visibleSelected.incidents.toLocaleString()} records</span>
                         </div>}
                       </div>
-            </Card>
+            </InteractiveAnalyticsCard>
           <div className="overview-side-charts">
-            <Card className="chart-panel severity-panel">
+            <InteractiveAnalyticsCard className="chart-panel severity-panel" label="Reported severity breakdown" onOpen={() => {
+              const total = data.severityDistribution.reduce((sum, item) => sum + item.value, 0);
+              const largest = data.severityDistribution.reduce<(typeof data.severityDistribution)[number] | null>((current, item) => !current || item.value > current.value ? item : current, null);
+              showDetail({
+                title: "Reported severity",
+                description: "Crash report counts grouped by the severity categories returned by the service.",
+                entries: [
+                  { label: "Records represented", value: total.toLocaleString() },
+                  { label: "Largest category", value: largest ? `${largest.name} · ${largest.value.toLocaleString()}` : "No severity data" },
+                  ...data.severityDistribution.map((item) => ({ label: item.name, value: item.value.toLocaleString() })),
+                ],
+                note: meta?.mode === "demo" ? "Severity counts are illustrative sample data." : "Severity labels and counts reflect the records returned by the connected service.",
+              });
+            }}>
               <PanelHeading title="Reported severity" detail={meta?.mode === "demo" ? "Sample response breakdown" : "Connected service breakdown"} />
               <div className="severity-chart-row">
               <div className="severity-donut">
                 <ResponsiveContainer width="100%" height="100%">
-                  <PieChart accessibilityLayer>
+                  <PieChart accessibilityLayer onClick={(chartState, event) => {
+                    if (typeof chartState.activeTooltipIndex !== "number") return;
+                    const item = data.severityDistribution[chartState.activeTooltipIndex];
+                    if (!item) return;
+                    event.stopPropagation();
+                    const total = data.severityDistribution.reduce((sum, category) => sum + category.value, 0);
+                    showDetail({
+                      title: item.name,
+                      description: "Crash reports in this severity category.",
+                      entries: [
+                        { label: "Records", value: item.value.toLocaleString() },
+                        { label: "Share of displayed records", value: `${total ? Math.round(item.value / total * 1000) / 10 : 0}%` },
+                      ],
+                      note: "A report count describes records in this response. It is not a forecast or a measure of risk per trip.",
+                    });
+                  }}>
                     <Pie data={data.severityDistribution} dataKey="value" nameKey="name" innerRadius="68%" outerRadius="92%" paddingAngle={3} stroke="none">{data.severityDistribution.map((item, index) => <Cell key={item.name} fill={item.color ?? COLORS[index % COLORS.length]} />)}</Pie>
                     <Tooltip contentStyle={{ borderRadius: 8, fontSize: 11 }} /></PieChart>
                 </ResponsiveContainer>
@@ -262,20 +459,59 @@ export function OverviewPage() {
               </div>
 
               <div className="severity-legend">{data.severityDistribution.map((item, index) =>
-                <div key={item.name}>
+                <button type="button" key={item.name} onClick={(event) => { event.stopPropagation();
+                  const total = data.severityDistribution.reduce((sum, category) => sum + category.value, 0);
+                  showDetail({
+                    title: item.name,
+                    description: "Crash reports in this severity category.",
+                    entries: [
+                      { label: "Records", value: item.value.toLocaleString() },
+                      { label: "Share of displayed records", value: `${total ? Math.round(item.value / total * 1000) / 10 : 0}%` },
+                    ],
+                    note: "A report count describes records in this response. It is not a forecast or a measure of risk per trip.",
+                  });
+                }}>
                   <i style={{ backgroundColor: item.color ?? COLORS[index % COLORS.length] }} />
                   <span>{item.name}</span>
                   <strong>{item.value.toLocaleString()}</strong>
-                </div>)}
+                </button>)}
               </div>
               </div>
-            </Card>
+            </InteractiveAnalyticsCard>
 
-            <Card className="chart-panel user-panel">
+            <InteractiveAnalyticsCard className="chart-panel user-panel" label="Road users represented chart" onOpen={() => {
+              const total = data.roadUserDistribution.reduce((sum, item) => sum + item.value, 0);
+              const largest = data.roadUserDistribution.reduce<(typeof data.roadUserDistribution)[number] | null>((current, item) => !current || item.value > current.value ? item : current, null);
+              showDetail({
+                title: "Road users represented",
+                description: "Crash records grouped by the road-user category in the returned data.",
+                entries: [
+                  { label: "Records represented", value: total.toLocaleString() },
+                  { label: "Largest group", value: largest ? `${largest.name} · ${largest.value.toLocaleString()}` : "No road-user data" },
+                  ...data.roadUserDistribution.map((item) => ({ label: item.name, value: item.value.toLocaleString() })),
+                ],
+                note: "These are record counts; they do not represent each group’s travel volume or risk per journey.",
+              });
+            }}>
               <PanelHeading title="Road users represented" detail={meta?.mode === "demo" ? "In sample incident records" : "In returned incident records"} />
               <div className="chart-area chart-user">
                 <ResponsiveContainer width="100%" height="100%">
-                  <BarChart accessibilityLayer data={data.roadUserDistribution} layout="vertical" margin={{ top: 0, right: 15, left: 20, bottom: 0 }}>
+                  <BarChart accessibilityLayer data={data.roadUserDistribution} layout="vertical" onClick={(chartState, event) => {
+                    if (typeof chartState.activeTooltipIndex !== "number") return;
+                    const item = data.roadUserDistribution[chartState.activeTooltipIndex];
+                    if (!item) return;
+                    event.stopPropagation();
+                    const total = data.roadUserDistribution.reduce((sum, category) => sum + category.value, 0);
+                    showDetail({
+                      title: item.name,
+                      description: "Crash records attributed to this road-user category.",
+                      entries: [
+                        { label: "Records", value: item.value.toLocaleString() },
+                        { label: "Share of represented records", value: `${total ? Math.round(item.value / total * 1000) / 10 : 0}%` },
+                      ],
+                      note: "A record count does not account for each group’s traffic volume or exposure on the road.",
+                    });
+                  }} margin={{ top: 0, right: 15, left: 20, bottom: 0 }}>
                     <CartesianGrid stroke="#edf1f5" horizontal={false} />
                     <XAxis type="number" hide />
                     <YAxis type="category" dataKey="name" axisLine={false} tickLine={false} tick={{ fill: "#657284", fontSize: 10 }} width={76} />
@@ -284,11 +520,20 @@ export function OverviewPage() {
                   </BarChart>
                 </ResponsiveContainer>
               </div>
-            </Card>
+            </InteractiveAnalyticsCard>
           </div>
         </div>
 
-        <Card className="business-value-panel">
+        <InteractiveAnalyticsCard className="business-value-panel" label="Potential road safety operating value" onOpen={() => showDetail({
+          title: "Potential operating value",
+          description: "Ways validated road-safety information could support planning and service measurement.",
+          entries: [
+            { label: "Prevent", value: "Prioritize corridors after validating local reports and traffic." },
+            { label: "Respond", value: "Compare facility placement with expected demand." },
+            { label: "Measure", value: "Track outcomes, response time, and cost over time." },
+          ],
+          note: "These are potential uses. Current models classify severity; they do not forecast future crashes or prove that an intervention caused a change.",
+        })}>
           <div className="business-value-heading"><span>BUSINESS VALUE · POTENTIAL</span><strong>Turn risk signals into measurable operating decisions.</strong></div>
           <div className="business-value-grid">
             <div><span>PREVENT</span><p>Target validated corridors before harm occurs.</p></div>
@@ -296,17 +541,27 @@ export function OverviewPage() {
             <div><span>MEASURE</span><p>Track severe crashes, response time and cost.</p></div>
           </div>
           <small>Benefits require accurate forecasts and outcome data. Current models classify severity; they do not forecast future crashes.</small>
-        </Card>
-        {data.insights.length > 0 && <Card className="insights-strip">
+        </InteractiveAnalyticsCard>
+        {data.insights.length > 0 && <InteractiveAnalyticsCard className="insights-strip" label="Road safety data note" onOpen={() => showDetail({
+          title: "Data note",
+          description: "Context returned with the current RoadLens overview data.",
+          entries: [
+            { label: "Data source", value: meta?.mode === "demo" ? "Illustrative sample response" : "Connected analytics service" },
+            { label: "Reporting period", value: periodLabel },
+            { label: "Note", value: data.insights[0] },
+          ],
+          note: meta?.mode === "demo" ? "Sample information is for interface demonstration and is not an official statistic." : "Interpret the result alongside reporting coverage and the connected service’s data definitions.",
+        })}>
           <div className="insights-icon"><Activity size={17} /></div>
           <div className="insights-copy">
             <span>DATA NOTES <i>·</i> {meta?.mode === "demo" ? "SAMPLE" : "SERVICE"}</span>
             <div>{data.insights.slice(0, 1).map((insight) => <p key={insight}>{insight}</p>)}</div>
           </div>
           <Link to="/analytics/accidents">Analysis <ArrowRight size={14} /></Link>
-        </Card>}
+        </InteractiveAnalyticsCard>}
       </>}
     </DataState>
+    {detail && <AnalyticsDetailPopup detail={detail} closeRef={detailCloseRef} onClose={() => setDetail(null)} />}
   </>;
 }
 
