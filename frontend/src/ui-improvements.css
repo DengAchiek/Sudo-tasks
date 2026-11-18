@@ -491,6 +491,9 @@
 .analytics-content .card .report-rejected { border-color: #75434d; background: #3a252d; color: #ffc1c8; }
 
 .analytics-content .card { border-color: var(--dash-border); border-radius: 11px; background: linear-gradient(145deg, #193946, #14303d 78%); box-shadow: 0 12px 30px rgb(3 17 24 / 22%), inset 0 1px rgb(255 255 255 / 4%); color: var(--dash-text); }
+.analytics-content .card[aria-haspopup="dialog"] { cursor: pointer; outline: 0; transition: border-color 150ms ease, box-shadow 150ms ease; }
+.analytics-content .card[aria-haspopup="dialog"]:hover { border-color: #4d7784; box-shadow: 0 8px 24px #030e1452; }
+.analytics-content .card[aria-haspopup="dialog"]:focus-visible { border-color: #62d5c2; box-shadow: 0 0 0 2px #62d5c267; }
 .analytics-content .analytics-detail-card { cursor: pointer; outline: 0; transition: border-color 150ms ease, box-shadow 150ms ease, transform 150ms ease; }
 .analytics-content .analytics-detail-card:hover { border-color: #4d7784; box-shadow: 0 8px 24px #030e1452; }
 .analytics-content .analytics-detail-card:focus-visible { border-color: #62d5c2; box-shadow: 0 0 0 2px #62d5c267; }
