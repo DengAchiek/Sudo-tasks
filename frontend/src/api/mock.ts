@@ -19,7 +19,7 @@ export const demoOverview: OverviewData = {
     { label: "Reported accidents", value: "2,846", change: 4.2, helper: "Sample records · 2018–2024" },
     { label: "Reported fatalities", value: "418", change: -2.1, helper: "Sample records · all severities" },
     { label: "Injuries reported", value: "1,972", change: 1.4, helper: "Sample records · where available" },
-    { label: "Detected hotspots", value: "18", helper: "Illustrative DBSCAN clusters" },
+    { label: "Detected hotspots", value: "18", helper: "Sample groups of nearby crash reports" },
   ],
   monthlyTrend: [
     { label: "Jan", accidents: 162, fatalities: 26 }, { label: "Feb", accidents: 184, fatalities: 29 },
@@ -49,16 +49,16 @@ export const demoOverview: OverviewData = {
     { name: "Cyclist", value: 131, color: "#8b5cf6" },
   ],
   hotspots: [
-    { id: "hs-01", name: "Thika Road · Pangani", latitude: -1.271, longitude: 36.831, incidents: 164, fatalities: 27, level: "high", mainRoadUser: "Pedestrian", summary: "Sample cluster for interface preview." },
-    { id: "hs-02", name: "Mombasa Road · Bellevue", latitude: -1.321, longitude: 36.851, incidents: 118, fatalities: 18, level: "high", mainRoadUser: "Motorcycle", summary: "Sample cluster for interface preview." },
-    { id: "hs-03", name: "Outer Ring Road · Umoja", latitude: -1.286, longitude: 36.891, incidents: 83, fatalities: 12, level: "moderate", mainRoadUser: "Pedestrian", summary: "Sample cluster for interface preview." },
-    { id: "hs-04", name: "Uhuru Highway · CBD", latitude: -1.292, longitude: 36.817, incidents: 69, fatalities: 9, level: "moderate", mainRoadUser: "Passenger", summary: "Sample cluster for interface preview." },
-    { id: "hs-05", name: "Waiyaki Way · Westlands", latitude: -1.267, longitude: 36.806, incidents: 42, fatalities: 4, level: "lower", mainRoadUser: "Motorcycle", summary: "Sample cluster for interface preview." },
+    { id: "hs-01", name: "Thika Road · Pangani", latitude: -1.271, longitude: 36.831, incidents: 164, fatalities: 27, level: "high", mainRoadUser: "Pedestrian", summary: "Example location for interface preview." },
+    { id: "hs-02", name: "Mombasa Road · Bellevue", latitude: -1.321, longitude: 36.851, incidents: 118, fatalities: 18, level: "high", mainRoadUser: "Motorcycle", summary: "Example location for interface preview." },
+    { id: "hs-03", name: "Outer Ring Road · Umoja", latitude: -1.286, longitude: 36.891, incidents: 83, fatalities: 12, level: "moderate", mainRoadUser: "Pedestrian", summary: "Example location for interface preview." },
+    { id: "hs-04", name: "Uhuru Highway · CBD", latitude: -1.292, longitude: 36.817, incidents: 69, fatalities: 9, level: "moderate", mainRoadUser: "Passenger", summary: "Example location for interface preview." },
+    { id: "hs-05", name: "Waiyaki Way · Westlands", latitude: -1.267, longitude: 36.806, incidents: 42, fatalities: 4, level: "lower", mainRoadUser: "Motorcycle", summary: "Example location for interface preview." },
   ],
   insights: [
     "The demo records contain more reports in the final quarter than the first quarter.",
     "Pedestrian records make up the largest road-user group in this sample response.",
-    "The displayed clusters are illustrative and do not represent verified Nairobi risk rankings.",
+    "The locations shown are examples and are not verified Nairobi risk rankings.",
   ],
 };
 
@@ -85,9 +85,9 @@ export const demoAnalysis: AnalysisData = {
 
 export const demoHotspots: HotspotsData = {
   summary: [
-    { label: "Detected clusters", value: "18", helper: "Illustrative DBSCAN output" },
-    { label: "Highest cluster count", value: "164", helper: "Demo records · selected sample cluster" },
-    { label: "Clusters with fatal reports", value: "12", helper: "Sample response only" },
+    { label: "Detected clusters", value: "18", helper: "Sample groups of nearby reports" },
+    { label: "Highest cluster count", value: "164", helper: "Sample records · selected area" },
+    { label: "Areas with fatal crashes", value: "12", helper: "Sample response only" },
   ],
   locations: demoOverview.hotspots,
   history: demoAnalysis.annualTrend,
@@ -121,8 +121,8 @@ export const demoRiskFactors: RiskFactorsData = {
     { name: "Road-user group", value: 0.28 }, { name: "Weather", value: 0.14 },
   ],
   insights: [
-    "The sample model ranks time of day among its stronger features.",
-    "Feature importance describes model behavior; it does not establish causation.",
+    "Time of day had a stronger influence on these example results.",
+    "These details influenced the example results; this does not show what caused a crash.",
   ],
 };
 
@@ -131,9 +131,9 @@ export const demoPredictions: PredictionsData = {
   validation: demoAnalysis.annualTrend,
   featureImportance: demoRiskFactors.factors,
   notes: [
-    "Demo metrics show an example severity-classification response only.",
-    "Historical hotspot detection describes where recorded incidents cluster; it is not a forecast of future crash occurrence.",
-    "A reliable occurrence probability requires suitable non-crash observations and exposure data.",
+    "These scores are examples of how results compare with recorded crash outcomes.",
+    "Past hotspots show where crashes were reported, not where the next crash will happen.",
+    "Estimating future crash locations requires reliable traffic counts and records from roads and times with no reported crashes too.",
   ],
 };
 

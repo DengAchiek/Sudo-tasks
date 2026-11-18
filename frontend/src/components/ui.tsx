@@ -15,19 +15,29 @@ export function Badge({ className = "", children, ...props }: HTMLAttributes<HTM
 }
 
 export function PanelHeading({ title, detail, action }: { title: string; detail?: string; action?: ReactNode }) {
-  return <div className="panel-heading"><div><h2>{title}</h2>{detail && <p>{detail}</p>}</div>{action}</div>;
+  return <div className="panel-heading">
+    <div>
+      <h2>{title}</h2>{detail && <p>{detail}</p>}</div>{action}</div>;
 }
 
 export function LoadingState({ label = "Loading analytical results" }: { label?: string }) {
-  return <div className="state-card"><LoaderCircle className="spin" size={21} /><span>{label}</span></div>;
+  return <div className="state-card" role="status" aria-live="polite">
+    <LoaderCircle className="spin" size={21} aria-hidden="true" />
+    <span>{label}</span>
+    </div>;
 }
 
 export function ErrorState({ message, retry }: { message: string; retry: () => void }) {
-  return <div className="state-card state-error"><span>{message}</span><Button variant="secondary" size="sm" icon={<RefreshCw size={14} />} onClick={retry}>Try again</Button></div>;
+  return <div className="state-card state-error" role="alert">
+    <span>{message}</span>
+    <Button variant="secondary" size="sm" icon={<RefreshCw size={14} aria-hidden="true" />} onClick={retry}>Try again</Button></div>;
 }
 
 export function EmptyState({ title, detail }: { title: string; detail: string }) {
-  return <div className="state-card state-empty"><strong>{title}</strong><span>{detail}</span></div>;
+  return <div className="state-card state-empty" role="status">
+    <strong>{title}</strong>
+    <span>{detail}</span>
+    </div>;
 }
 
 export function DataState({ loading, error, retry, title, detail, children }: { loading: boolean; error: string | null; retry: () => void; title: string; detail: string; children: ReactNode }) {

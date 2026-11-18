@@ -27,7 +27,10 @@ interface UserRow {
 
 const SESSION_COOKIE = "roadlens_session";
 const SESSION_SECONDS = 14 * 24 * 60 * 60;
-const PASSWORD_ITERATIONS = 600_000;
+// Cloudflare Workers Free allows 10 ms of CPU per request. This reduced work
+// factor keeps registration usable on Free, but is weaker than OWASP's
+// recommended 600,000 PBKDF2-HMAC-SHA256 iterations.
+const PASSWORD_ITERATIONS = 40_000;
 const encoder = new TextEncoder();
 
 function json(body: unknown, status = 200, extraHeaders?: HeadersInit): Response {
@@ -72,7 +75,7 @@ async function verifyPassword(password: string, storedHash: string): Promise<boo
   try {
     const [algorithm, iterationText, saltText, digestText] = storedHash.split("$");
     const iterations = Number(iterationText);
-    if (algorithm !== "pbkdf2_sha256" || !Number.isInteger(iterations) || iterations < 100_000 || iterations > 1_000_000 || !saltText || !digestText) return false;
+    if (algorithm !== "pbkdf2_sha256" || !Number.isInteger(iterations) || iterations < 20_000 || iterations > 1_000_000 || !saltText || !digestText) return false;
     const expected = decodeBase64Url(digestText);
     const actual = await derivePassword(password, decodeBase64Url(saltText), iterations);
     if (actual.length !== expected.length) return false;

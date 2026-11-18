@@ -14,8 +14,12 @@ const RiskFactorsPage = lazy(() => import("./pages/AnalyticsPages").then((module
 const PredictionsPage = lazy(() => import("./pages/AnalyticsPages").then((module) => ({ default: module.PredictionsPage })));
 const EmergencyResponsePage = lazy(() => import("./pages/AnalyticsPages").then((module) => ({ default: module.EmergencyResponsePage })));
 const CommunityReportsPage = lazy(() => import("./pages/AnalyticsPages").then((module) => ({ default: module.CommunityReportsPage })));
+const SettingsPage = lazy(() => import("./pages/AnalyticsPages").then((module) => ({ default: module.SettingsPage })));
 
-function LoadingPage() { return <div className="app-loading"><span className="app-loading-mark">R</span><span>Loading RoadLens</span></div>; }
+function LoadingPage() { return <div className="app-loading">
+  <span className="app-loading-mark">R</span>
+  <span>Loading RoadLens</span>
+  </div>; }
 
 function RequireAuth({ children }: { children: ReactNode }) {
   const { user, loading } = useAuth();
@@ -27,11 +31,15 @@ function RequireAuth({ children }: { children: ReactNode }) {
 
 function NotFound() {
   return <main className="not-found">
-    <div className="not-found-mark"><MapPin size={24} /></div>
+    <div className="not-found-mark">
+      <MapPin size={24} />
+    </div>
     <span>404 · ROAD NOT FOUND</span>
     <h1>This route is off the map.</h1>
     <p>The page may have moved or the link may be out of date.</p>
-    <Link className="button button-primary" to="/">Return to RoadLens <ArrowLeft size={15} /></Link></main>;
+    <Link className="button button-primary" to="/">Return to RoadLens <ArrowLeft size={15} />
+    </Link>
+  </main>;
 }
 
 export function App() {
@@ -48,6 +56,7 @@ export function App() {
       <Route path="predictions" element={<PredictionsPage />} />
       <Route path="emergency" element={<EmergencyResponsePage />} />
       <Route path="reports" element={<CommunityReportsPage />} />
+      <Route path="settings" element={<SettingsPage />} />
       <Route path="*" element={<Navigate to="/analytics" replace />} />
     </Route>
     <Route path="*" element={<NotFound />} />

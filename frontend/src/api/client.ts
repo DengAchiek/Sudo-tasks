@@ -50,33 +50,48 @@ http.interceptors.response.use(
   },
 );
 
-const wait = (duration = 220) => new Promise((resolve) => window.setTimeout(resolve, duration));
+const wait = (duration = 220, signal?: AbortSignal) => new Promise<void>((resolve, reject) => {
+  if (signal?.aborted) {
+    reject(new DOMException("The request was cancelled.", "AbortError"));
+    return;
+  }
+  let timeout = 0;
+  const handleAbort = () => {
+    window.clearTimeout(timeout);
+    reject(new DOMException("The request was cancelled.", "AbortError"));
+  };
+  timeout = window.setTimeout(() => {
+    signal?.removeEventListener("abort", handleAbort);
+    resolve();
+  }, duration);
+  signal?.addEventListener("abort", handleAbort, { once: true });
+});
 const params = (period: Period, search?: string) => ({ period, ...(search ? { search } : {}) });
 
-async function demo<T>(data: T): Promise<{ data: T; meta: ApiMeta }> {
-  await wait();
+async function demo<T>(data: T, signal?: AbortSignal): Promise<{ data: T; meta: ApiMeta }> {
+  await wait(220, signal);
   return { data, meta: demoMeta };
 }
 
-async function get<T>(url: string, fallback: T, query?: Record<string, string>) {
-  if (isDemoMode) return demo(fallback);
-  const response = await http.get<T>(url, { params: query });
+async function get<T>(url: string, fallback: T, query?: Record<string, string>, signal?: AbortSignal) {
+  if (isDemoMode) return demo(fallback, signal);
+  const response = await http.get<T>(url, { params: query, signal });
   return { data: response.data, meta: { mode: "live" as const, updatedAt: response.headers["last-modified"] ?? new Date().toISOString() } };
 }
 
 export const roadlensApi = {
-  overview: (period: Period, search?: string) => get<OverviewData>("/api/v1/overview", demoOverview, params(period, search)),
-  analysis: (period: Period) => get<AnalysisData>("/api/v1/accidents/trends", demoAnalysis, params(period)),
-  hotspots: (period: Period, search?: string) => get<HotspotsData>("/api/v1/hotspots", demoHotspots, params(period, search)),
-  severity: (period: Period) => get<SeverityData>("/api/v1/severity/analysis", demoSeverity, params(period)),
-  riskFactors: (period: Period) => get<RiskFactorsData>("/api/v1/risk-factors", demoRiskFactors, params(period)),
-  predictions: (period: Period) => get<PredictionsData>("/api/v1/predictions", demoPredictions, params(period)),
-  modelPerformance: (period: Period) => get<ModelMetric[]>("/api/v1/models/performance", demoSeverity.models, params(period)),
-  distributions: (period: Period) => get<Pick<OverviewData, "monthlyDistribution" | "weekdayDistribution" | "severityDistribution" | "roadUserDistribution">>("/api/v1/accidents/distribution", { monthlyDistribution: demoOverview.monthlyDistribution, weekdayDistribution: demoOverview.weekdayDistribution, severityDistribution: demoOverview.severityDistribution, roadUserDistribution: demoOverview.roadUserDistribution }, params(period)),
-  facilities: async (): Promise<{ data: EmergencyFacility[]; meta: ApiMeta }> => get("/api/v1/emergency/facilities", demoFacilities),
-  coverage: async (): Promise<{ data: EmergencyCoverageData; meta: ApiMeta }> => get("/api/v1/emergency/coverage", demoCoverage),
+  overview: (period: Period, search?: string, signal?: AbortSignal) => get<OverviewData>("/api/v1/overview", demoOverview, params(period, search), signal),
+  analysis: (period: Period, signal?: AbortSignal) => get<AnalysisData>("/api/v1/accidents/trends", demoAnalysis, params(period), signal),
+  hotspots: (period: Period, search?: string, signal?: AbortSignal) => get<HotspotsData>("/api/v1/hotspots", demoHotspots, params(period, search), signal),
+  severity: (period: Period, signal?: AbortSignal) => get<SeverityData>("/api/v1/severity/analysis", demoSeverity, params(period), signal),
+  riskFactors: (period: Period, signal?: AbortSignal) => get<RiskFactorsData>("/api/v1/risk-factors", demoRiskFactors, params(period), signal),
+  predictions: (period: Period, signal?: AbortSignal) => get<PredictionsData>("/api/v1/predictions", demoPredictions, params(period), signal),
+  modelPerformance: (period: Period, signal?: AbortSignal) => get<ModelMetric[]>("/api/v1/models/performance", demoSeverity.models, params(period), signal),
+  distributions: (period: Period, signal?: AbortSignal) => get<Pick<OverviewData, "monthlyDistribution" | "weekdayDistribution" | "severityDistribution" | "roadUserDistribution">>("/api/v1/accidents/distribution", { monthlyDistribution: demoOverview.monthlyDistribution, weekdayDistribution: demoOverview.weekdayDistribution, severityDistribution: demoOverview.severityDistribution, roadUserDistribution: demoOverview.roadUserDistribution }, params(period), signal),
+  facilities: async (signal?: AbortSignal): Promise<{ data: EmergencyFacility[]; meta: ApiMeta }> => get("/api/v1/emergency/facilities", demoFacilities, undefined, signal),
+  coverage: async (signal?: AbortSignal): Promise<{ data: EmergencyCoverageData; meta: ApiMeta }> => get("/api/v1/emergency/coverage", demoCoverage, undefined, signal),
   // The backend must enforce authorization and omit personal contact details from this public view.
-  communityReports: (period: Period) => get<CommunityReport[]>("/api/v1/reports", demoReports, params(period)),
+  communityReports: (period: Period, signal?: AbortSignal) => get<CommunityReport[]>("/api/v1/reports", demoReports, params(period), signal),
   requestRoute: async (body: RouteRequest): Promise<{ data: OptimizedRoute; meta: ApiMeta }> => {
     if (isDemoMode) return demo({ ...demoRoute, facilityName: demoFacilities.find((facility) => facility.id === body.facilityId)?.name ?? demoRoute.facilityName, algorithm: `${body.algorithm === "astar" ? "A*" : "Dijkstra"} · demo response` });
     const response = await http.post<OptimizedRoute>("/api/v1/emergency/routes", body);
