@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
-import { Activity, AlertTriangle, ArrowLeft, BarChart3, ChevronDown, Clock3, FileText, Layers3, LogOut, MapPin, Menu, Search, Settings, ShieldCheck, Siren, type LucideIcon } from "lucide-react";
+import { Activity, AlertTriangle, ArrowLeft, BarChart3, ChevronDown, Clock3, FileText, Gauge, Layers3, LogOut, MapPin, Menu, Search, Settings, ShieldCheck, Siren, type LucideIcon } from "lucide-react";
 import type { Period } from "../types/analytics";
 import { Badge } from "../components/ui";
 import { isDemoMode } from "../api/client";
@@ -33,16 +33,17 @@ export function AnalyticsLayout() {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
   const { user, signOut } = useAuth();
+  const displayedGroups = user?.role === "admin" ? [...navGroups, { label: "ADMIN", items: [{ label: "Application health", path: "/analytics/admin", icon: Gauge }] }] : navGroups;
   const navigate = useNavigate();
   const location = useLocation();
-  const pageName = location.pathname.endsWith("/accidents") ? "Accident analysis" : location.pathname.endsWith("/hotspots") ? "Accident hotspots" : location.pathname.endsWith("/severity") ? "Severity analysis" : location.pathname.endsWith("/risk-factors") ? "Risk factors" : location.pathname.endsWith("/predictions") ? "Estimate results" : location.pathname.endsWith("/emergency") ? "Emergency response" : location.pathname.endsWith("/reports") ? "Community reports" : location.pathname.endsWith("/settings") ? "Settings" : "Overview";
+  const pageName = location.pathname.endsWith("/accidents") ? "Accident analysis" : location.pathname.endsWith("/hotspots") ? "Accident hotspots" : location.pathname.endsWith("/severity") ? "Severity analysis" : location.pathname.endsWith("/risk-factors") ? "Risk factors" : location.pathname.endsWith("/predictions") ? "Estimate results" : location.pathname.endsWith("/emergency") ? "Emergency response" : location.pathname.endsWith("/reports") ? "Community reports" : location.pathname.endsWith("/settings") ? "Settings" : location.pathname.endsWith("/admin") ? "Application health" : "Overview";
   const searchable = location.pathname === "/analytics" || location.pathname === "/analytics/hotspots";
   const periodRelevant = !location.pathname.endsWith("/emergency");
   return <div className="analytics-shell">
     <aside className={`analytics-sidebar ${mobileOpen ? "sidebar-open" : ""}`} aria-label="RoadLens workspace">
       <Link className="brand brand-analytics" to="/" aria-label="RoadLens home"><BrandMark /><span><strong>RoadLens</strong><small>NAIROBI ROAD INTELLIGENCE</small></span></Link>
       <div className="sidebar-location"><span className="location-dot" />NAIROBI COUNTY <span>↗</span></div>
-      <nav id="analytics-navigation" aria-label="Analytics navigation">{navGroups.map((group) => <div className="nav-group" key={group.label}><div className="nav-label">{group.label}</div>{group.items.map(({ label, path, icon: Icon }) => <NavLink key={path} to={path} end={path === "/analytics"} onClick={() => setMobileOpen(false)} className={({ isActive }) => `analytics-nav-link ${isActive ? "active" : ""}`}><Icon size={16} strokeWidth={1.8} /><span>{label}</span></NavLink>)}</div>)}</nav>
+      <nav id="analytics-navigation" aria-label="Analytics navigation">{displayedGroups.map((group) => <div className="nav-group" key={group.label}><div className="nav-label">{group.label}</div>{group.items.map(({ label, path, icon: Icon }) => <NavLink key={path} to={path} end={path === "/analytics"} onClick={() => setMobileOpen(false)} className={({ isActive }) => `analytics-nav-link ${isActive ? "active" : ""}`}><Icon size={16} strokeWidth={1.8} /><span>{label}</span></NavLink>)}</div>)}</nav>
       <div className="sidebar-bottom"><div className="sidebar-foot"><div className="sidebar-foot-avatar">{user?.name.split(/\s+/).slice(0, 2).map((part) => part[0]).join("").toUpperCase()}</div><div className="sidebar-account"><strong>{user?.name}</strong><span>{user?.email}</span></div><button className="sidebar-signout" type="button" onClick={async () => { setSigningOut(true); try { await signOut(); navigate("/"); } finally { setSigningOut(false); } }} disabled={signingOut} aria-label="Sign out" title="Sign out"><LogOut size={15} /></button></div></div>
     </aside>
     {mobileOpen && <button className="sidebar-scrim" type="button" onClick={() => setMobileOpen(false)} aria-label="Close navigation" />}

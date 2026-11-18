@@ -1,5 +1,34 @@
 export type Period = "30d" | "90d" | "12m" | "all";
 export type RiskLevel = "high" | "moderate" | "lower";
+export type AdminRange = "24h" | "7d" | "30d";
+
+export interface AdminMetrics {
+  range: AdminRange;
+  generatedAt: string;
+  summary: {
+    requests: number;
+    pageViews: number;
+    uniqueUsers: number;
+    activeUsers: number;
+    totalUsers: number;
+    newUsers: number;
+    averageResponseMs: number;
+    maxResponseMs: number;
+    errors: number;
+    errorRate: number;
+  };
+  timeline: Array<{
+    timestamp: number;
+    requests: number;
+    pageViews: number;
+    errors: number;
+    averageResponseMs: number;
+    newUsers: number;
+  }>;
+  topPages: Array<{ path: string; views: number }>;
+  slowRoutes: Array<{ route: string; requests: number; errors: number; averageResponseMs: number; maxResponseMs: number }>;
+  statusCodes: Array<{ status: number; requests: number }>;
+}
 
 export interface ApiMeta {
   mode: "demo" | "live";

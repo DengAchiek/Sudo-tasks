@@ -1,4 +1,4 @@
-import { lazy, Suspense, type ReactNode } from "react";
+import { lazy, Suspense, useEffect, useRef, type ReactNode } from "react";
 import { Link, Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { ArrowLeft, MapPin } from "lucide-react";
 import { useAuth } from "./auth/AuthContext";
@@ -15,6 +15,7 @@ const PredictionsPage = lazy(() => import("./pages/AnalyticsPages").then((module
 const EmergencyResponsePage = lazy(() => import("./pages/AnalyticsPages").then((module) => ({ default: module.EmergencyResponsePage })));
 const CommunityReportsPage = lazy(() => import("./pages/AnalyticsPages").then((module) => ({ default: module.CommunityReportsPage })));
 const SettingsPage = lazy(() => import("./pages/AnalyticsPages").then((module) => ({ default: module.SettingsPage })));
+const AdminDashboardPage = lazy(() => import("./pages/AdminDashboardPage").then((module) => ({ default: module.AdminDashboardPage })));
 
 function LoadingPage() { return <div className="app-loading">
   <span className="app-loading-mark">R</span>
@@ -27,6 +28,29 @@ function RequireAuth({ children }: { children: ReactNode }) {
   if (loading) return <LoadingPage />;
   if (!user) return <Navigate to="/login" state={{ from: location }} replace />;
   return children;
+}
+
+function RequireAdmin({ children }: { children: ReactNode }) {
+  const { user } = useAuth();
+  if (user?.role !== "admin") return <Navigate to="/analytics" replace />;
+  return children;
+}
+
+function PageViewTracker() {
+  const { pathname } = useLocation();
+  const lastPath = useRef("");
+  useEffect(() => {
+    if (lastPath.current === pathname) return;
+    lastPath.current = pathname;
+    void fetch("/api/metrics/pageview", {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ path: pathname }),
+      keepalive: true,
+    }).catch(() => undefined);
+  }, [pathname]);
+  return null;
 }
 
 function NotFound() {
@@ -43,7 +67,7 @@ function NotFound() {
 }
 
 export function App() {
-  return <Suspense fallback={<LoadingPage />}><Routes>
+  return <Suspense fallback={<LoadingPage />}><PageViewTracker /><Routes>
     <Route path="/" element={<PublicLanding />} />
     <Route path="/login" element={<AuthPage mode="login" />} />
     <Route path="/register" element={<AuthPage mode="register" />} />
@@ -57,6 +81,7 @@ export function App() {
       <Route path="emergency" element={<EmergencyResponsePage />} />
       <Route path="reports" element={<CommunityReportsPage />} />
       <Route path="settings" element={<SettingsPage />} />
+      <Route path="admin" element={<RequireAdmin><AdminDashboardPage /></RequireAdmin>} />
       <Route path="*" element={<Navigate to="/analytics" replace />} />
     </Route>
     <Route path="*" element={<NotFound />} />

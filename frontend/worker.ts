@@ -6,6 +6,7 @@ interface D1Result {
 interface D1Statement {
   bind(...values: Array<string | number>): D1Statement;
   first<T>(): Promise<T | null>;
+  all<T>(): Promise<{ results: T[] }>;
   run(): Promise<D1Result>;
 }
 
@@ -18,10 +19,15 @@ interface Env {
   ASSETS: { fetch(request: Request): Promise<Response> };
 }
 
+interface WorkerContext {
+  waitUntil(promise: Promise<unknown>): void;
+}
+
 interface UserRow {
   id: number;
   name: string;
   email: string;
+  role?: "user" | "admin";
   password_hash?: string;
 }
 
@@ -32,6 +38,13 @@ const SESSION_SECONDS = 14 * 24 * 60 * 60;
 // recommended 600,000 PBKDF2-HMAC-SHA256 iterations.
 const PASSWORD_ITERATIONS = 40_000;
 const encoder = new TextEncoder();
+const METRICS_RETENTION_SECONDS = 90 * 24 * 60 * 60;
+const PAGE_PATHS = new Set([
+  "/", "/login", "/register", "/analytics", "/analytics/accidents", "/analytics/hotspots",
+  "/analytics/severity", "/analytics/risk-factors", "/analytics/predictions", "/analytics/emergency",
+  "/analytics/reports", "/analytics/settings", "/analytics/admin",
+]);
+let lastMetricsCleanupDay = -1;
 
 function json(body: unknown, status = 200, extraHeaders?: HeadersInit): Response {
   const headers = new Headers(extraHeaders);
@@ -106,6 +119,167 @@ function expiredCookie(request: Request): string {
   return `${SESSION_COOKIE}=; Max-Age=0; Path=/; HttpOnly; SameSite=Lax${secure}`;
 }
 
+function publicUser(user: UserRow) {
+  return { id: user.id, name: user.name, email: user.email, role: user.role === "admin" ? "admin" as const : "user" as const };
+}
+
+async function requestUser(request: Request, env: Env): Promise<UserRow | null> {
+  const token = sessionToken(request);
+  if (!token) return null;
+  return env.DB.prepare(
+    "SELECT users.id, users.name, users.email, users.role FROM auth_sessions JOIN users ON users.id = auth_sessions.user_id WHERE auth_sessions.token_hash = ? AND auth_sessions.expires_at > ?",
+  ).bind(await sha256(token), Math.floor(Date.now() / 1000)).first<UserRow>();
+}
+
+function metricRoute(pathname: string): string {
+  if (PAGE_PATHS.has(pathname)) return pathname;
+  if (/^\/api\/auth\/(?:login|register|me|logout)$/u.test(pathname)) return pathname;
+  if (pathname === "/api/metrics/pageview") return pathname;
+  if (/^\/api\/v1\/[a-z0-9/_-]{1,80}$/u.test(pathname)) return pathname;
+  if (pathname.startsWith("/api/")) return "/api/other";
+  if (pathname.startsWith("/assets/")) {
+    const extension = pathname.split(".").at(-1)?.toLowerCase();
+    return extension && ["js", "css", "svg", "png", "jpg", "webp", "woff2"].includes(extension)
+      ? `/assets/*.${extension}`
+      : "/assets/*";
+  }
+  return "/other";
+}
+
+async function recordRequestMetric(env: Env, pathname: string, status: number, durationMs: number): Promise<void> {
+  const now = Math.floor(Date.now() / 60_000) * 60;
+  const day = Math.floor(now / 86_400);
+  const statements = [env.DB.prepare(
+    "INSERT INTO app_request_minutes (minute_start, route, status_code, request_count, duration_total_ms, duration_max_ms) VALUES (?, ?, ?, 1, ?, ?) ON CONFLICT(minute_start, route, status_code) DO UPDATE SET request_count = request_count + 1, duration_total_ms = duration_total_ms + excluded.duration_total_ms, duration_max_ms = MAX(duration_max_ms, excluded.duration_max_ms)",
+  ).bind(now, metricRoute(pathname), status, Math.max(0, Math.round(durationMs)), Math.max(0, Math.round(durationMs)))];
+
+  if (day !== lastMetricsCleanupDay) {
+    lastMetricsCleanupDay = day;
+    const cutoff = now - METRICS_RETENTION_SECONDS;
+    statements.push(env.DB.prepare("DELETE FROM app_request_minutes WHERE minute_start < ?").bind(cutoff));
+    statements.push(env.DB.prepare("DELETE FROM app_pageview_minutes WHERE minute_start < ?").bind(cutoff));
+    statements.push(env.DB.prepare("DELETE FROM app_active_user_minutes WHERE minute_start < ?").bind(cutoff));
+  }
+  await Promise.all(statements.map((statement) => statement.run()));
+}
+
+async function handlePageView(request: Request, env: Env): Promise<Response> {
+  if (request.method !== "POST") return json({ error: "Page-view method not allowed." }, 405, { Allow: "POST" });
+  if (!validOrigin(request)) return json({ error: "Cross-origin request rejected." }, 403);
+  let payload: unknown;
+  try { payload = await request.json(); } catch { return json({ error: "Submit a page path as JSON." }, 400); }
+  const candidate = payload && typeof payload === "object" && !Array.isArray(payload)
+    ? (payload as Record<string, unknown>).path
+    : null;
+  const path = typeof candidate === "string" && PAGE_PATHS.has(candidate) ? candidate : "/other";
+  const minute = Math.floor(Date.now() / 60_000) * 60;
+  const user = await requestUser(request, env);
+  const statements = [env.DB.prepare(
+    "INSERT INTO app_pageview_minutes (minute_start, path, page_views) VALUES (?, ?, 1) ON CONFLICT(minute_start, path) DO UPDATE SET page_views = page_views + 1",
+  ).bind(minute, path)];
+  if (user) statements.push(env.DB.prepare("INSERT OR IGNORE INTO app_active_user_minutes (minute_start, user_id) VALUES (?, ?)").bind(minute, user.id));
+  await Promise.all(statements.map((statement) => statement.run()));
+  return json({ recorded: true }, 202);
+}
+
+async function handleAdminMetrics(request: Request, env: Env): Promise<Response> {
+  if (request.method !== "GET") return json({ error: "Metrics method not allowed." }, 405, { Allow: "GET" });
+  const user = await requestUser(request, env);
+  if (!user) return json({ error: "Sign in to access application metrics." }, 401);
+  if (user.role !== "admin") return json({ error: "Administrator access is required." }, 403);
+
+  const url = new URL(request.url);
+  const requestedRange = url.searchParams.get("range");
+  const range = requestedRange === "7d" || requestedRange === "30d" ? requestedRange : "24h";
+  const rangeSeconds = range === "24h" ? 86_400 : range === "7d" ? 7 * 86_400 : 30 * 86_400;
+  const bucketSeconds = range === "24h" ? 3_600 : 86_400;
+  const now = Math.floor(Date.now() / 1000);
+  const cutoff = now - rangeSeconds;
+  const nowMinute = Math.floor(now / 60) * 60;
+  const requestSummaryQuery = env.DB.prepare(
+    "SELECT COALESCE(SUM(request_count), 0) AS requests, COALESCE(SUM(CASE WHEN status_code >= 400 THEN request_count ELSE 0 END), 0) AS errors, COALESCE(ROUND(SUM(duration_total_ms) * 1.0 / NULLIF(SUM(request_count), 0), 1), 0) AS average_response_ms, COALESCE(MAX(duration_max_ms), 0) AS max_response_ms FROM app_request_minutes WHERE minute_start >= ?",
+  ).bind(cutoff);
+  const requestTimelineQuery = env.DB.prepare(
+    "SELECT CAST(minute_start / ? AS INTEGER) * ? AS timestamp, SUM(request_count) AS requests, SUM(CASE WHEN status_code >= 400 THEN request_count ELSE 0 END) AS errors, ROUND(SUM(duration_total_ms) * 1.0 / NULLIF(SUM(request_count), 0), 1) AS average_response_ms FROM app_request_minutes WHERE minute_start >= ? GROUP BY timestamp ORDER BY timestamp",
+  ).bind(bucketSeconds, bucketSeconds, cutoff);
+  const pageviewSummaryQuery = env.DB.prepare("SELECT COALESCE(SUM(page_views), 0) AS page_views FROM app_pageview_minutes WHERE minute_start >= ?").bind(cutoff);
+  const pageviewTimelineQuery = env.DB.prepare(
+    "SELECT CAST(minute_start / ? AS INTEGER) * ? AS timestamp, SUM(page_views) AS page_views FROM app_pageview_minutes WHERE minute_start >= ? GROUP BY timestamp ORDER BY timestamp",
+  ).bind(bucketSeconds, bucketSeconds, cutoff);
+  const uniqueUsersQuery = env.DB.prepare("SELECT COUNT(DISTINCT user_id) AS count FROM app_active_user_minutes WHERE minute_start >= ?").bind(cutoff);
+  const activeUsersQuery = env.DB.prepare("SELECT COUNT(DISTINCT user_id) AS count FROM app_active_user_minutes WHERE minute_start >= ?").bind(nowMinute - 300);
+  const totalUsersQuery = env.DB.prepare("SELECT COUNT(*) AS count FROM users");
+  const newUsersQuery = env.DB.prepare("SELECT COUNT(*) AS count FROM users WHERE created_at >= ?").bind(cutoff);
+  const signupTimelineQuery = env.DB.prepare(
+    "SELECT CAST(created_at / ? AS INTEGER) * ? AS timestamp, COUNT(*) AS new_users FROM users WHERE created_at >= ? GROUP BY timestamp ORDER BY timestamp",
+  ).bind(bucketSeconds, bucketSeconds, cutoff);
+  const topPagesQuery = env.DB.prepare(
+    "SELECT path, SUM(page_views) AS views FROM app_pageview_minutes WHERE minute_start >= ? GROUP BY path ORDER BY views DESC LIMIT 8",
+  ).bind(cutoff);
+  const slowRoutesQuery = env.DB.prepare(
+    "SELECT route, SUM(request_count) AS requests, SUM(CASE WHEN status_code >= 400 THEN request_count ELSE 0 END) AS errors, ROUND(SUM(duration_total_ms) * 1.0 / NULLIF(SUM(request_count), 0), 1) AS average_response_ms, MAX(duration_max_ms) AS max_response_ms FROM app_request_minutes WHERE minute_start >= ? GROUP BY route ORDER BY average_response_ms DESC LIMIT 8",
+  ).bind(cutoff);
+  const statusCodesQuery = env.DB.prepare(
+    "SELECT status_code AS status, SUM(request_count) AS requests FROM app_request_minutes WHERE minute_start >= ? GROUP BY status_code ORDER BY status_code",
+  ).bind(cutoff);
+
+  const [requestSummary, requestTimeline, pageviewSummary, pageviewTimeline, uniqueUsers, activeUsers, totalUsers, newUsers, signupTimeline, topPages, slowRoutes, statusCodes] = await Promise.all([
+    requestSummaryQuery.first<{ requests: number; errors: number; average_response_ms: number; max_response_ms: number }>(),
+    requestTimelineQuery.all<{ timestamp: number; requests: number; errors: number; average_response_ms: number | null }>(),
+    pageviewSummaryQuery.first<{ page_views: number }>(),
+    pageviewTimelineQuery.all<{ timestamp: number; page_views: number }>(),
+    uniqueUsersQuery.first<{ count: number }>(),
+    activeUsersQuery.first<{ count: number }>(),
+    totalUsersQuery.first<{ count: number }>(),
+    newUsersQuery.first<{ count: number }>(),
+    signupTimelineQuery.all<{ timestamp: number; new_users: number }>(),
+    topPagesQuery.all<{ path: string; views: number }>(),
+    slowRoutesQuery.all<{ route: string; requests: number; errors: number; average_response_ms: number; max_response_ms: number }>(),
+    statusCodesQuery.all<{ status: number; requests: number }>(),
+  ]);
+
+  const requestByTime = new Map(requestTimeline.results.map((item) => [item.timestamp, item]));
+  const pageViewsByTime = new Map(pageviewTimeline.results.map((item) => [item.timestamp, item.page_views]));
+  const signupsByTime = new Map(signupTimeline.results.map((item) => [item.timestamp, item.new_users]));
+  const firstBucket = Math.floor(cutoff / bucketSeconds) * bucketSeconds;
+  const lastBucket = Math.floor(now / bucketSeconds) * bucketSeconds;
+  const timeline = [];
+  for (let timestamp = firstBucket; timestamp <= lastBucket; timestamp += bucketSeconds) {
+    const requests = requestByTime.get(timestamp);
+    timeline.push({
+      timestamp,
+      requests: requests?.requests ?? 0,
+      pageViews: pageViewsByTime.get(timestamp) ?? 0,
+      errors: requests?.errors ?? 0,
+      averageResponseMs: requests?.average_response_ms ?? 0,
+      newUsers: signupsByTime.get(timestamp) ?? 0,
+    });
+  }
+
+  const requestCount = requestSummary?.requests ?? 0;
+  const errorCount = requestSummary?.errors ?? 0;
+  return json({
+    range,
+    generatedAt: new Date().toISOString(),
+    summary: {
+      requests: requestCount,
+      pageViews: pageviewSummary?.page_views ?? 0,
+      uniqueUsers: uniqueUsers?.count ?? 0,
+      activeUsers: activeUsers?.count ?? 0,
+      totalUsers: totalUsers?.count ?? 0,
+      newUsers: newUsers?.count ?? 0,
+      averageResponseMs: requestSummary?.average_response_ms ?? 0,
+      maxResponseMs: requestSummary?.max_response_ms ?? 0,
+      errors: errorCount,
+      errorRate: requestCount ? Math.round((errorCount / requestCount) * 1000) / 10 : 0,
+    },
+    timeline,
+    topPages: topPages.results,
+    slowRoutes: slowRoutes.results.map((item) => ({ route: item.route, requests: item.requests, errors: item.errors, averageResponseMs: item.average_response_ms, maxResponseMs: item.max_response_ms })),
+    statusCodes: statusCodes.results,
+  });
+}
+
 async function createSession(env: Env, userId: number): Promise<string> {
   const token = encodeBase64Url(crypto.getRandomValues(new Uint8Array(32)));
   const tokenHash = await sha256(token);
@@ -126,12 +300,8 @@ async function handleAuth(request: Request, env: Env): Promise<Response> {
   if (!validOrigin(request)) return json({ error: "Cross-origin request rejected." }, 403);
 
   if (path === "/api/auth/me" && request.method === "GET") {
-    const token = sessionToken(request);
-    if (!token) return json({ error: "Sign in to access your dashboard." }, 401);
-    const user = await env.DB.prepare(
-      "SELECT users.id, users.name, users.email FROM auth_sessions JOIN users ON users.id = auth_sessions.user_id WHERE auth_sessions.token_hash = ? AND auth_sessions.expires_at > ?",
-    ).bind(await sha256(token), Math.floor(Date.now() / 1000)).first<Omit<UserRow, "password_hash">>();
-    return user ? json({ user }) : json({ error: "Sign in to access your dashboard." }, 401);
+    const user = await requestUser(request, env);
+    return user ? json({ user: publicUser(user) }) : json({ error: "Sign in to access your dashboard." }, 401);
   }
 
   if (path === "/api/auth/logout" && request.method === "POST") {
@@ -172,31 +342,49 @@ async function handleAuth(request: Request, env: Env): Promise<Response> {
       return json({ error: "Email or password is incorrect." }, 401);
     }
 
-    const user = await env.DB.prepare("SELECT id, name, email, password_hash FROM users WHERE email = ?").bind(email).first<UserRow>();
+    const user = await env.DB.prepare("SELECT id, name, email, role, password_hash FROM users WHERE email = ?").bind(email).first<UserRow>();
     const registering = path === "/api/auth/register";
     if (!user || (!registering && (!user.password_hash || !(await verifyPassword(password, user.password_hash))))) {
       return json({ error: "Email or password is incorrect." }, 401);
     }
     const token = await createSession(env, user.id);
     await env.DB.prepare("DELETE FROM auth_sessions WHERE expires_at <= ?").bind(Math.floor(Date.now() / 1000)).run();
-    const publicUser = { id: user.id, name: user.name, email: user.email };
-    return json({ user: publicUser }, path.endsWith("register") ? 201 : 200, { "Set-Cookie": sessionCookie(token, request) });
+    return json({ user: publicUser(user) }, path.endsWith("register") ? 201 : 200, { "Set-Cookie": sessionCookie(token, request) });
   }
 
   return json({ error: "Authentication route not found." }, 404);
 }
 
+async function dispatch(request: Request, env: Env): Promise<Response> {
+  const { pathname } = new URL(request.url);
+  if (pathname === "/api/admin/metrics") {
+    try { return await handleAdminMetrics(request, env); }
+    catch { return json({ error: "Application metrics could not be loaded." }, 500); }
+  }
+  if (pathname === "/api/metrics/pageview") {
+    try { return await handlePageView(request, env); }
+    catch { return json({ error: "Page view could not be recorded." }, 500); }
+  }
+  if (pathname.startsWith("/api/auth/")) {
+    try { return await handleAuth(request, env); }
+    catch { return json({ error: "The authentication service could not complete your request." }, 500); }
+  }
+  if (pathname.startsWith("/api/")) return json({ error: "API route not found." }, 404);
+  return env.ASSETS.fetch(request);
+}
+
 export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
+  async fetch(request: Request, env: Env, context: WorkerContext): Promise<Response> {
     const { pathname } = new URL(request.url);
-    if (pathname.startsWith("/api/auth/")) {
-      try {
-        return await handleAuth(request, env);
-      } catch {
-        return json({ error: "The authentication service could not complete your request." }, 500);
-      }
+    const startedAt = performance.now();
+    let response: Response;
+    try { response = await dispatch(request, env); }
+    catch { response = json({ error: "The application could not complete your request." }, 500); }
+
+    if (pathname !== "/api/admin/metrics") {
+      const durationMs = performance.now() - startedAt;
+      context.waitUntil(recordRequestMetric(env, pathname, response.status, durationMs).catch(() => undefined));
     }
-    if (pathname.startsWith("/api/")) return json({ error: "API route not found." }, 404);
-    return env.ASSETS.fetch(request);
+    return response;
   },
 };

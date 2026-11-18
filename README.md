@@ -57,5 +57,21 @@ npm run cf:deploy
 
 When Wrangler asks to add the D1 binding to the config, accept so it records the database ID. The deployed URL is printed by Wrangler as a `workers.dev` address; a custom domain can be attached in Cloudflare later. Run `npm run cf:dev` to preview the Worker and a local D1 database. The Cloudflare D1 database starts empty; accounts in the local Flask SQLite database are not imported and will need to register again on the deployed site.
 
+### Application administration
+
+The analytics workspace includes an admin-only application health dashboard at `/analytics/admin`. It shows request volume, response times, HTTP errors, page views, top pages, route performance, account totals, and signed-in activity over 24 hours, 7 days, or 30 days. Metrics are written to minute-level aggregates and retained for 90 days. Request paths are normalized before storage; IP addresses and request-level histories are not stored. Signed-in activity is grouped by account ID and minute so unique and currently active users can be counted.
+
+New accounts have the regular `user` role. After registering the account that should administer the deployed app, grant that account access from `frontend/`:
+
+```bash
+npx wrangler d1 execute roadlens-auth --remote --command "UPDATE users SET role = 'admin' WHERE email = 'you@example.com';"
+```
+
+For the local Flask database, promote an existing account with:
+
+```bash
+python -c "import sqlite3; c=sqlite3.connect('instance/roadlens.sqlite3'); c.execute('UPDATE users SET role=? WHERE email=?', ('admin', 'you@example.com')); c.commit()"
+```
+
 ## Responsible use
 This project is for research and decision support. Do not treat model outputs as definitive evidence of individual driver behaviour or as a substitute for official road-safety decisions. Protect personal and sensitive information.
