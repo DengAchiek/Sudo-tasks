@@ -7,34 +7,115 @@ import { isDemoMode } from "../api/client";
 import { BrandMark } from "../components/Brand";
 import { useAuth } from "../auth/AuthContext";
 
-export interface AnalyticsContext { period: Period; search: string; setPeriod: (period: Period) => void; setSearch: (search: string) => void }
+export interface DashboardDetail { title: string; description: string; entries: Array<{ label: string; value: string }>; note: string }
+export interface AnalyticsContext { period: Period; search: string; setPeriod: (period: Period) => void; setSearch: (search: string) => void; showDetail: (detail: DashboardDetail) => void }
 
-interface SectionCardDetail { title: string; description: string; entries: Array<{ label: string; value: string }>; note: string }
+function readClickedItem(item: HTMLElement, pageName: string, periodLabel: string, demo: boolean): DashboardDetail | null {
+  const compact = (value: string | null | undefined) => value?.replace(/\s+/gu, " ").trim() ?? "";
+  const text = compact(item.innerText);
+  if (!text) return null;
+  const semanticTitle = item.matches(".metric-tile")
+    ? compact(item.querySelector(".metric-tile-label")?.textContent).replace(/\s+0\d+$/u, "")
+    : item.matches(".analysis-stat-row > div")
+      ? compact(item.querySelector("span")?.textContent)
+      : item.matches(".matrix-cell")
+        ? `${compact(item.closest(".matrix-row")?.querySelector("strong")?.textContent) || "Recorded outcome"} · ${compact(item.innerText)}`
+        : item.matches(".panel-heading")
+          ? compact(item.querySelector("h2")?.textContent)
+          : item.matches(".settings-source-card > strong, .settings-source-card > p, .settings-source-card > small, .proposed-site-list > div, .coverage-gaps > span, .historical-warning, .factor-source-note, .route-auth-note, .method-limitation, .network-map-foot span, .chart-legend > span, .risk-legend > span, .facility-legend > span, .report-demo-note")
+            ? compact(item.innerText).slice(0, 90)
+            : "";
+  const heading = compact(item.querySelector<HTMLElement>(".factor-name, .cluster-info strong, .route-result-metrics > div > span, .route-alternatives > div > span:first-child, .business-value-grid > div > span, .matrix-row > strong, .report-status-item > div > strong, .facility-list-item strong, .finding-row > p, .severity-legend strong, .settings-readonly-row > span, .settings-profile strong, .settings-current strong, .settings-source-card > strong, .prediction-banner strong, .report-disclaimer strong, .historical-warning, .factor-source-note, .route-auth-note, .method-limitation, .panel-heading h2, h2, h3, h4, strong")?.innerText);
+  const title = semanticTitle || heading || (item.tagName === "TR" ? compact(item.querySelector("th")?.textContent) : "") || pageName;
+  const rawLines = (item.innerText || "").split(/\n+/u).map(compact).filter(Boolean);
+  const description = compact(item.querySelector<HTMLElement>(".factor-name small, .cluster-info small, .facility-list-item small, .settings-profile small, .panel-heading p")?.innerText)
+    || (item.matches(".finding-row") ? "Dashboard finding" : item.matches(".analysis-stat-row > div, .metric-tile") ? "Summary metric for the selected reporting period" : `Details for ${title}`);
+  let entries: DashboardDetail["entries"] = [];
 
-function readSectionCard(card: HTMLElement, pageName: string, periodLabel: string, demo: boolean): SectionCardDetail {
-  const title = card.querySelector<HTMLElement>(".panel-heading h2, .route-form-heading strong, .page-card-heading, h2, h3, h4")?.innerText.trim()
-    || card.querySelector<HTMLElement>(".metric-tile-label")?.innerText.replace(/\s+0\d+$/u, "").trim()
-    || card.getAttribute("aria-label")
-    || pageName;
-  const description = card.querySelector<HTMLElement>(".panel-heading p, .route-form-heading small, .card-description, .interpretation-card p")?.innerText.trim()
-    || `More context from this ${pageName.toLowerCase()} panel.`;
-  const structuredItems = Array.from(card.querySelectorAll<HTMLElement>(
-    ".analysis-stat-row > div, .severity-legend > button, .severity-legend > div, .factor-row, .finding-row, .cluster-list-item, .facility-list-item, .coverage-preview, .coverage-time-compare, .route-result-metrics > div, .route-alternatives > div, .business-value-grid > div, .limitations-grid > div, .methodology-grid > div, tbody tr",
-  )).map((item) => item.innerText.replace(/\s+/gu, " ").trim()).filter(Boolean);
-  const visibleLines = (card.innerText || "").split(/\n+/u).map((line) => line.replace(/\s+/gu, " ").trim())
-    .filter((line) => line && line !== title && line !== description && !/^\d+$/u.test(line));
-  const detailLines = (structuredItems.length ? structuredItems : visibleLines).slice(0, 7);
-  const entries = detailLines.map((line, index) => ({ label: structuredItems.length ? `Panel item ${index + 1}` : `Visible detail ${index + 1}`, value: line }));
+  if (item.matches(".metric-tile")) {
+    entries = [
+      { label: "Current value", value: compact(item.querySelector(".metric-main-value")?.textContent) || "—" },
+      ...(compact(item.querySelector(".metric-change")?.textContent) ? [{ label: "Change", value: compact(item.querySelector(".metric-change")?.textContent) }] : []),
+      ...(compact(item.querySelector(".metric-helper")?.textContent) ? [{ label: "Context", value: compact(item.querySelector(".metric-helper")?.textContent) }] : []),
+    ];
+  } else if (item.matches(".analysis-stat-row > div")) {
+    const parts = Array.from(item.children).map((child) => compact(child.textContent)).filter(Boolean);
+    entries = [{ label: parts[0] || "Metric", value: parts[1] || "—" }, ...(parts[2] ? [{ label: "Context", value: parts[2] }] : [])];
+  } else if (item.matches(".factor-row")) {
+    entries = [
+      { label: "Factor", value: title },
+      { label: "Direction", value: compact(item.querySelector(".factor-name small")?.textContent) || "Not specified" },
+      { label: "Influence score", value: compact(item.querySelector(".factor-row > strong")?.textContent) || "Not available" },
+    ];
+  } else if (item.matches(".cluster-list-item")) {
+    entries = [
+      { label: "Location", value: title },
+      { label: "Road-user group", value: compact(item.querySelector(".cluster-info small")?.textContent) || "Not specified" },
+      { label: "Report count", value: compact(item.querySelector(".cluster-count")?.textContent) || "0" },
+    ];
+  } else if (item.matches(".report-status-item")) {
+    entries = [
+      { label: "Location", value: compact(item.querySelector("strong")?.textContent) || title },
+      { label: "Incident and date", value: compact(item.querySelector("span")?.textContent) || "Not provided" },
+      { label: "Review status", value: compact(item.querySelector(".badge")?.textContent) || "Pending" },
+    ];
+  } else if (item.matches(".facility-list-item")) {
+    entries = [
+      { label: "Facility", value: compact(item.querySelector("strong")?.textContent) || title },
+      { label: "Type", value: compact(item.querySelector("small")?.textContent) || "Not specified" },
+    ];
+  } else if (item.matches(".settings-readonly-row")) {
+    entries = [{ label: compact(item.querySelector("span")?.textContent) || "Workspace setting", value: compact(item.querySelector("strong")?.textContent) || "Not available" }];
+  } else if (item.matches(".settings-profile")) {
+    entries = [{ label: "Account name", value: compact(item.querySelector("strong")?.textContent) || "Not available" }, { label: "Email", value: compact(item.querySelector("small")?.textContent) || "Not available" }];
+  } else if (item.matches(".settings-current")) {
+    entries = [{ label: "Current reporting window", value: compact(item.querySelector("strong")?.textContent) || "Not available" }, { label: "Status", value: compact(item.querySelector("small")?.textContent) || "Current setting" }];
+  } else if (item.matches(".route-result-metrics > div")) {
+    entries = [{ label: compact(item.querySelector("span")?.textContent) || "Route metric", value: compact(item.querySelector("strong")?.textContent) || "Not available" }];
+  } else if (item.matches(".route-alternatives > div")) {
+    entries = [{ label: "Alternative route", value: rawLines[0] || title }, { label: "Distance and time", value: rawLines.slice(1).join(" · ") || "Not available" }];
+  } else if (item.matches(".business-value-grid > div")) {
+    entries = [{ label: "Action", value: title }, { label: "Potential use", value: rawLines.slice(1).join(" ") || description }];
+  } else if (item.matches(".finding-row")) {
+    entries = [{ label: "Finding", value: compact(item.querySelector("p")?.textContent) || text }];
+  } else if (item.matches("tbody tr")) {
+    const headers = Array.from(item.closest("table")?.querySelectorAll("thead th") ?? []).map((header) => compact(header.textContent));
+    const cells = Array.from(item.querySelectorAll("th,td")).map((cell) => compact(cell.textContent));
+    entries = cells.map((value, index) => ({ label: headers[index] || `Value ${index + 1}`, value }));
+  } else if (item.matches(".matrix-cell")) {
+    const row = item.closest(".matrix-row");
+    const matrix = item.closest(".confusion-matrix");
+    const columns = Array.from(matrix?.querySelectorAll<HTMLElement>(":scope > span") ?? []).map((element) => compact(element.innerText));
+    const rowLabel = compact(row?.querySelector("strong")?.textContent) || "Recorded outcome";
+    const cells = Array.from(row?.querySelectorAll(".matrix-cell") ?? []);
+    const columnIndex = cells.indexOf(item);
+    entries = [{ label: `${rowLabel} · ${columns[columnIndex] || "Estimated outcome"}`, value: text }];
+  } else if (item.matches(".matrix-row")) {
+    const matrix = item.closest(".confusion-matrix");
+    const columns = Array.from(matrix?.querySelectorAll<HTMLElement>(":scope > span") ?? []).map((element) => compact(element.innerText));
+    const cells = Array.from(item.querySelectorAll<HTMLElement>(".matrix-cell"));
+    const rowLabel = compact(item.querySelector("strong")?.textContent) || title;
+    entries = cells.map((cell, index) => ({ label: `${rowLabel} · ${columns[index] || `Outcome ${index + 1}`}`, value: compact(cell.innerText) }));
+  } else if (item.matches(".coverage-preview, .coverage-time-compare, .proposed-site-list > div, .coverage-gaps > span, .severity-legend > button, .severity-legend > div, .limitations-grid > div, .methodology-grid > div, .evaluation-metric, .settings-source-card > strong, .settings-source-card > p, .settings-source-card > small, .prediction-banner, .report-disclaimer, .historical-warning, .factor-source-note, .route-auth-note, .method-limitation, .report-explainer li, .report-demo-note, .network-map-foot span, .chart-legend > span, .risk-legend > span, .facility-legend > span")) {
+    entries = [{ label: "Selected item", value: text }];
+  } else if (item.matches(".panel-heading")) {
+    const panelTitle = compact(item.querySelector("h2")?.textContent) || title;
+    entries = [{ label: "Panel", value: panelTitle }, { label: "Context", value: description }];
+  } else {
+    entries = [{ label: "Selected item", value: text }];
+  }
+
   return {
     title,
     description,
-    entries: [{ label: "Dashboard section", value: pageName }, { label: "Reporting period", value: periodLabel }, ...entries],
-    note: demo ? "This section is showing illustrative sample information, not official statistics." : "Details reflect the currently visible content returned by the connected service.",
+    entries: [{ label: "Reporting period", value: periodLabel }, ...entries.slice(0, 8)],
+    note: demo ? "This is illustrative sample information, not an official statistic." : "Details are limited to the selected item in the connected dashboard data.",
   };
 }
 
 function isCardInteractionExcluded(target: Element): boolean {
-  return Boolean(target.closest("a,button,input,select,textarea,form,label,[role='button'],[role='link'],.admin-dashboard,.admin-interactive-card,.analytics-detail-card,.overview-map,.hotspot-large-map,.nairobi-map,.cluster-list-item,.map-layer-switch,.map-filter-row"));
+  if (target.closest(".cluster-list-item")) return false;
+  return Boolean(target.closest("a,button,input,select,textarea,form,label,[role='button'],[role='link'],.admin-dashboard,.admin-interactive-card,.analytics-detail-card,.overview-map,.hotspot-large-map,.nairobi-map,.map-layer-switch,.map-filter-row,.recharts-wrapper"));
 }
 
 const navGroups: Array<{ label: string; items: Array<{ label: string; path: string; icon: LucideIcon }> }> = [
@@ -60,7 +141,7 @@ export function AnalyticsLayout() {
   const [search, setSearch] = useState("");
   const [mobileOpen, setMobileOpen] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
-  const [cardDetail, setCardDetail] = useState<SectionCardDetail | null>(null);
+  const [cardDetail, setCardDetail] = useState<DashboardDetail | null>(null);
   const contentRef = useRef<HTMLElement | null>(null);
   const cardDetailCloseRef = useRef<HTMLButtonElement | null>(null);
   const { user, signOut } = useAuth();
@@ -119,12 +200,34 @@ export function AnalyticsLayout() {
     };
   }, [cardDetail]);
 
-  const openCardDetail = (card: HTMLElement) => setCardDetail(readSectionCard(card, pageName, periodLabel, isDemoMode));
+  const openCardDetail = (card: HTMLElement) => {
+    const heading = card.querySelector<HTMLElement>(".panel-heading");
+    if (heading) {
+      const title = heading.querySelector("h2")?.textContent?.trim() || pageName;
+      const description = heading.querySelector("p")?.textContent?.trim() || `Dashboard panel in ${pageName}.`;
+      setCardDetail({ title, description, entries: [{ label: "Reporting period", value: periodLabel }], note: isDemoMode ? "This section is showing illustrative sample information, not official statistics." : "Select a specific value or chart point to inspect its individual details." });
+      return;
+    }
+    const metricLabel = card.querySelector<HTMLElement>(".metric-tile-label")?.innerText.replace(/\s+0\d+$/u, "").trim();
+    const value = card.querySelector<HTMLElement>(".metric-main-value")?.innerText.replace(/\s+/gu, " ").trim();
+    if (metricLabel) {
+      setCardDetail({ title: metricLabel, description: `Summary metric shown on ${pageName}.`, entries: [{ label: "Value", value: value || "—" }, { label: "Reporting period", value: periodLabel }], note: isDemoMode ? "This is illustrative sample information, not an official statistic." : "This value reflects the currently connected dashboard data." });
+    }
+  };
+  const openSpecificItem = (item: HTMLElement) => {
+    const detail = readClickedItem(item, pageName, periodLabel, isDemoMode);
+    if (detail) setCardDetail(detail);
+  };
   const handleCardClick = (event: MouseEvent<HTMLElement>) => {
     const target = event.target instanceof Element ? event.target : null;
     if (!target || isCardInteractionExcluded(target)) return;
+    const item = target.closest<HTMLElement>(".metric-tile, .analysis-stat-row > div, .factor-row, .finding-row, .cluster-list-item, .facility-list-item, .report-status-item, .route-result-metrics > div, .route-alternatives > div, .business-value-grid > div, .limitations-grid > div, .methodology-grid > div, .confusion-matrix .matrix-row, .confusion-matrix .matrix-cell, .proposed-site-list > div, .coverage-gaps > span, .coverage-preview, .coverage-time-compare, .severity-legend > button, .severity-legend > div, .settings-readonly-row, .settings-profile, .settings-current, .settings-source-card > strong, .settings-source-card > p, .settings-source-card > small, .prediction-banner, .report-disclaimer, .historical-warning, .factor-source-note, .route-auth-note, .method-limitation, .report-explainer li, .report-demo-note, .network-map-foot span, .chart-legend > span, .risk-legend > span, .facility-legend > span, tbody tr, .panel-heading, .interpretation-card > p, .data-mode-note, .decision-alert, .insights-strip");
+    if (item && !item.closest(".admin-dashboard")) {
+      openSpecificItem(item);
+      return;
+    }
     const card = target.closest<HTMLElement>(".analytics-content .card");
-    if (card && !card.closest(".admin-dashboard")) openCardDetail(card);
+    if (card && !card.closest(".admin-dashboard") && !target.closest(".recharts-wrapper")) openCardDetail(card);
   };
   const handleCardKeyDown = (event: KeyboardEvent<HTMLElement>) => {
     if (event.key !== "Enter" && event.key !== " ") return;
@@ -133,6 +236,7 @@ export function AnalyticsLayout() {
     event.preventDefault();
     openCardDetail(target as HTMLElement);
   };
+  const showDetail = (detail: DashboardDetail) => setCardDetail({ ...detail, entries: [{ label: "Reporting period", value: periodLabel }, ...detail.entries].slice(0, 9) });
   return <div className="analytics-shell">
     <aside className={`analytics-sidebar ${mobileOpen ? "sidebar-open" : ""}`} aria-label="RoadLens workspace">
       <Link className="brand brand-analytics" to="/" aria-label="RoadLens home"><BrandMark /><span><strong>RoadLens</strong><small>NAIROBI ROAD INTELLIGENCE</small></span></Link>
@@ -143,7 +247,7 @@ export function AnalyticsLayout() {
     {mobileOpen && <button className="sidebar-scrim" type="button" onClick={() => setMobileOpen(false)} aria-label="Close navigation" />}
     <div className="analytics-main">
       <header className="analytics-topbar"><div className="topbar-left"><button className="mobile-menu-button" type="button" aria-label="Open navigation" aria-expanded={mobileOpen} aria-controls="analytics-navigation" onClick={() => setMobileOpen(true)}><Menu size={19} /></button><div className="breadcrumbs"><span>Workspace</span><span>/</span><strong>{pageName}</strong></div></div><div className="topbar-right">{searchable && <label className="global-search"><Search size={15} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search map locations" aria-label="Search map locations" /></label>}{periodRelevant && !isDemoMode && <label className="period-select"><Clock3 size={14} /><select value={period} onChange={(event) => setPeriod(event.target.value as Period)} aria-label="Reporting period"><option value="30d">Last 30 days</option><option value="90d">Last 90 days</option><option value="12m">Last 12 months</option><option value="all">All available</option></select><ChevronDown size={13} /></label>}{isDemoMode && periodRelevant && <span className="period-data-note" title="Time filters activate when a connected analytics API is configured"><Clock3 size={14} />Sample snapshot</span>}<Badge className={isDemoMode ? "demo-badge" : "live-data-badge"}><span />{isDemoMode ? "DEMO DATA" : "BACKEND DATA"}</Badge></div></header>
-      <main ref={contentRef} className="analytics-content" onClick={handleCardClick} onKeyDown={handleCardKeyDown}><Outlet context={{ period, search, setPeriod, setSearch } satisfies AnalyticsContext} /></main>
+      <main ref={contentRef} className="analytics-content" onClick={handleCardClick} onKeyDown={handleCardKeyDown}><Outlet context={{ period, search, setPeriod, setSearch, showDetail } satisfies AnalyticsContext} /></main>
       {cardDetail && <div className="analytics-detail-backdrop" role="presentation" onClick={(event) => {
         if (event.target === event.currentTarget) setCardDetail(null);
       }}>
