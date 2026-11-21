@@ -238,9 +238,9 @@ export function AdminDashboardPage() {
             }} margin={{ top: 12, right: 16, left: -18, bottom: 0 }}>
               <defs><linearGradient id="adminRequestFill" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#45b8a7" stopOpacity={.32} /><stop offset="100%" stopColor="#45b8a7" stopOpacity={.02} /></linearGradient></defs>
               <CartesianGrid stroke="#496672" strokeOpacity={.28} vertical={false} />
-              <XAxis dataKey="label" axisLine={false} tickLine={false} tick={{ fill: "#c1d0d5", fontSize: 11 }} minTickGap={22} />
-              <YAxis axisLine={false} tickLine={false} tick={{ fill: "#c1d0d5", fontSize: 11 }} allowDecimals={false} />
-              <Tooltip contentStyle={{ border: "1px solid #3a5b68", borderRadius: 9, background: "#0e2632", color: "#edf5f7", fontSize: 12 }} />
+              <XAxis dataKey="label" axisLine={false} tickLine={false} tick={{ fill: "#c1d0d5", fontSize: 13 }} minTickGap={22} />
+              <YAxis axisLine={false} tickLine={false} tick={{ fill: "#c1d0d5", fontSize: 13 }} allowDecimals={false} />
+              <Tooltip contentStyle={{ border: "1px solid #3a5b68", borderRadius: 9, background: "#0e2632", color: "#edf5f7", fontSize: 14 }} />
               <Area type="monotone" dataKey="requests" name="Worker requests" stroke="#55cbb6" fill="url(#adminRequestFill)" strokeWidth={2.3} />
               <Line type="monotone" dataKey="pageViews" name="Page views" stroke="#78aef5" strokeWidth={2} dot={false} />
               <Line type="monotone" dataKey="newUsers" name="New accounts" stroke="#f1bd67" strokeWidth={2} dot={false} />
